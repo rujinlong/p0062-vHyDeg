@@ -1,0 +1,11 @@
+samplesheet:
+  - id: D45
+    illumina:
+      - data_clean/D45_1.fastp.fastq.gz
+      - data_clean/D45_2.fastp.fastq.gz
+    resfinder: Other
+  - id: DMP
+    illumina:
+      - data_clean/DM_1.fastp.fastq.gz
+      - data_clean/DM_2.fastp.fastq.gz
+    resfinder: Other

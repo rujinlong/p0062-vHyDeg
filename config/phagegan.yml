@@ -1,0 +1,3 @@
+minlen_contig: 10000
+assembler: "spades"
+

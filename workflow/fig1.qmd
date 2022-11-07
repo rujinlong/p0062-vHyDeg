@@ -1,0 +1,313 @@
+---
+title: "Loq quality HYDG annotations"
+author: "Jinlong Ru"
+format: 
+  html:
+    toc: true
+    toc-depth: 4
+    colorlinks: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(data.table)
+library(here)
+
+# data path
+wd <- here("hpc/fig01_lq_canthyd")
+db_canthyd <- "/Users/allen/data2/db/canthyd/cutoffs.tsv"
+db_pfam <- "/Users/allen/data2/db/pfam/pfam_desc.tsv"
+db_kegg <- "/Users/allen/data2/db/kegg/current/ko2pathway.tsv"
+fin_hyd <- here(wd, "canthydrep_canthyd.tsv")
+fin_pfam <- here(wd, "canthydrep_anno_PfamA.tsv")
+fin_eggnog <- here(wd, "canthydrep_eggnog.tsv")
+
+# read data
+tbl_canthyd <- fread(db_canthyd, header = T, sep = "\t")
+tbl_pfam <- fread(db_pfam, header = T, sep = "\t") %>% 
+  mutate(PfamA=dbac, PfamA_desc=desc) %>%
+  mutate(PfamA = str_replace(PfamA, "\\..*", "")) %>%
+  select(PfamA, PfamA_desc)
+tbl_kegg <- fread(db_kegg, header = T, sep = "\t") %>%
+  mutate(KEGG_ko = koid, KEGG_A = A, KEGG_B = B, KEGG_C = C, KEGG_D = D) %>%
+  select(KEGG_ko, KEGG_A, KEGG_B, KEGG_C, KEGG_D)
+
+df_pfam <- fread(fin_pfam) %>% 
+  # sort by query_id and bits in descending order
+  arrange(query_id, desc(bits)) %>%
+  mutate(PfamA = target) %>%
+  select(c(query_id, PfamA)) %>%
+  # remove duplicated query_id and keep the first one
+  distinct(query_id, .keep_all = T) %>%
+  mutate(PfamA = str_replace(PfamA, "\\..*", "")) %>%
+  left_join(tbl_pfam, by = "PfamA") %>%
+  # append "(PfamA)" to PfamA_desc
+  mutate(anno_PfamA = str_c(PfamA_desc, " (", PfamA, ")"))
+
+df_eggnog <- fread(fin_eggnog)
+
+df_hyd <- fread(fin_hyd) %>% 
+  left_join(tbl_canthyd, by = "dbid") %>%
+  mutate(
+    trusted = ifelse(bitscore >= Trusted_Cutoff, 1, 0),
+    notnoise = ifelse(bitscore >= Noise_Cutoff, 1, 0)
+  ) %>%
+  # merge with eggnog
+  left_join(df_eggnog, by = c("query_id" = "query")) %>%
+  left_join(df_pfam, by = "query_id")
+```
+
+Split CANTHYD into true and false annotations
+
+```{r}
+df_hyd_trusted <- df_hyd %>% filter(trusted == 1)
+df_hyd_nottrusted <- df_hyd %>% filter(trusted == 0)
+df_hyd_notnoise <- df_hyd %>% filter(notnoise == 1)
+df_hyd_noise <- df_hyd %>% filter(notnoise == 0)
+```
+
+Plot horizontal barplot
+
+```{r}
+# plot KEGG_ko of noise hits
+df_kegg <- df_hyd %>% 
+  filter(notnoise == 0) %>%
+  tidyr::separate_rows(KEGG_ko, sep = ",") %>%
+  filter(KEGG_ko != "-") %>%
+  mutate(KEGG_ko = str_replace(KEGG_ko, "ko:", "")) %>%
+  # merge with KEGG_ko2pathway
+  left_join(tbl_kegg, by = "KEGG_ko")
+
+# plot horizontal barplot of KEGG_A frequency using ggpubr
+df_kegg %>% 
+  dplyr::select(c(query_id, KEGG_A)) %>%
+  group_by(KEGG_A) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  mutate(KEGG_A = reorder(KEGG_A, n)) %>%
+  ggbarplot(x = "KEGG_A", y = "n", fill = "KEGG_A", 
+            xlab = "KEGG_A", ylab = "Number of proteins", 
+            rotate = TRUE,
+            add = "mean_se", position = position_dodge(width = 0.9)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("KEGG_A of noise hits")
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_kegg_a.pdf"), width = 8, height = 6)
+
+# plot horizontal barplot of KEGG_B frequency using ggpubr
+df_kegg %>% 
+  dplyr::select(c(query_id, KEGG_B)) %>%
+  group_by(KEGG_B) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  mutate(KEGG_B = reorder(KEGG_B, n)) %>%
+  head(30) %>%
+  ggbarplot(x = "KEGG_B", y = "n", fill = "KEGG_B", 
+            xlab = "KEGG_B", ylab = "Number of proteins", 
+            rotate = TRUE,
+            add = "mean_se", position = position_dodge(width = 0.9)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("KEGG_B of noise hits")
+
+# save plot
+ggsave(here(wd, "fig02_lq_canthyd_kegg_b.pdf"), width = 8, height = 6)
+```
+
+```{r}
+# plot horizontal barplot of KEGG_C frequency using ggpubr
+df_kegg %>% 
+  dplyr::select(c(query_id, KEGG_C)) %>%
+  tidyr::separate_rows(KEGG_C, sep = ",") %>%
+  group_by(KEGG_C) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  mutate(KEGG_C = reorder(KEGG_C, n)) %>%
+  head(30) %>%
+  ggbarplot(x = "KEGG_C", y = "n", fill = "KEGG_C", 
+            xlab = "KEGG_C", ylab = "Number of proteins", 
+            rotate = TRUE,
+            add = "mean_se", position = position_dodge(width = 0.9)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("KEGG_C of noise hits")
+
+# save plot
+ggsave(here(wd, "fig03_lq_canthyd_kegg_c.pdf"), width = 8, height = 6)
+
+# plot horizontal barplot of KEGG_D frequency using ggpubr
+df_kegg %>% 
+  dplyr::select(c(query_id, KEGG_D)) %>%
+  tidyr::separate_rows(KEGG_D, sep = ",") %>%
+  group_by(KEGG_D) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  mutate(KEGG_D = reorder(KEGG_D, n)) %>%
+  head(30) %>%
+  ggbarplot(x = "KEGG_D", y = "n", fill = "KEGG_D", 
+            xlab = "KEGG_D", ylab = "Number of proteins", 
+            rotate = TRUE,
+            add = "mean_se", position = position_dodge(width = 0.9)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("KEGG_D of noise hits")
+
+# save plot
+ggsave(here(wd, "fig04_lq_canthyd_kegg_d.pdf"), width = 8, height = 6)
+```
+
+```{r}
+# plot PFAMs of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  tidyr::separate_rows(PFAMs, sep = ",") %>%
+  filter(PFAMs != "-") %>%
+  count(PFAMs) %>%
+  arrange(desc(n)) %>%
+  mutate(PFAMs = reorder(PFAMs, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr
+  ggbarplot(x = "PFAMs", y = "n", 
+            fill = "PFAMs", 
+            xlab = "Pfam", ylab = "Number of proteins", 
+            rotate = TRUE, 
+            ggtheme = theme_pubr(base_size = 10)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_pfam.pdf"), width = 8, height = 6)
+```
+
+```{r}
+# plot PfamA of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  # remove PfamA with NA
+  filter(!is.na(PfamA)) %>%
+  count(PfamA) %>%
+  arrange(desc(n)) %>%
+  mutate(PfamA = reorder(PfamA, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr
+  ggbarplot(x = "PfamA", y = "n", 
+            fill = "PfamA", 
+            xlab = "PfamA", ylab = "Number of proteins", 
+            rotate = TRUE, 
+            ggtheme = theme_pubr(base_size = 10)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_pfama.pdf"), width = 8, height = 6)
+```
+
+
+```{r}
+# plot GOs of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  tidyr::separate_rows(GOs, sep = ",") %>%
+  filter(GOs != "-") %>%
+  count(GOs) %>%
+  arrange(desc(n)) %>%
+  mutate(GOs = reorder(GOs, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr
+  ggbarplot(x = "GOs", y = "n", 
+            fill = "GOs", 
+            xlab = "GO", ylab = "Number of proteins", 
+            rotate = TRUE, 
+            ggtheme = theme_pubr(base_size = 10)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_go.pdf"), width = 8, height = 6)
+```
+
+```{r}
+# plot Description of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  filter(Description != "-") %>%
+  count(Description) %>%
+  arrange(desc(n)) %>%
+  mutate(Description = reorder(Description, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr, figure width 30, height 20
+  ggbarplot(x = "Description", y = "n", 
+            fill = "Description", 
+            xlab = "Description", ylab = "Number of proteins", 
+            rotate = TRUE, 
+            ggtheme = theme_pubr(base_size = 8)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_description.pdf"), width = 30, height = 20)
+```
+
+```{r}
+# plot COG_category of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  filter(COG_category != "-") %>%
+  # seperate rows with each have only one letter
+  tidyr::separate_rows(COG_category, sep = '(?<=.)(?=.)') %>%
+  count(COG_category) %>%
+  arrange(desc(n)) %>%
+  mutate(COG_category = reorder(COG_category, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr
+  ggbarplot(x = "COG_category", y = "n", 
+            fill = "COG_category", 
+            xlab = "COG_category", ylab = "Number of proteins", 
+            rotate = TRUE, 
+            ggtheme = theme_pubr(base_size = 12)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_cog_category.pdf"), width = 8, height = 6)
+```
+
+```{r}
+# plot anno_PfamA of noise hits
+df_hyd %>% 
+  filter(notnoise == 0) %>%
+  filter(!is.na(anno_PfamA)) %>%
+  count(anno_PfamA) %>%
+  arrange(desc(n)) %>%
+  mutate(anno_PfamA = reorder(anno_PfamA, n)) %>%
+  head(30) %>%
+  # plot horizontal barplot using ggpubr, color is "blue"
+  ggbarplot(x = "anno_PfamA", y = "n", 
+            fill = "anno_PfamA", 
+            xlab = "Pfam", ylab = "Number of proteins", 
+            rotate = TRUE, title = "Pfam annotation of noise hits",
+            ggtheme = theme_pubr(base_size = 8)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.position = "none")
+
+# save plot
+ggsave(here(wd, "fig01_lq_canthyd_noise_anno_pfama.png"), width = 6, height = 5)
+```
+
+
+##### Extract non-noise hits
+  
+  ```{r}
+  # save non-noise hits to file
+  df_hyd %>% 
+    filter(notnoise == 1) %>%
+    # sort by dbid
+    arrange(dbid) %>%
+    write_tsv(here(wd, "lq_canthyd_nonnoise_hits.tsv"))
+  ```

@@ -1,0 +1,138 @@
+---
+title: "project"
+author: "Jinlong Ru"
+format: 
+  html:
+    toc: true
+    toc-depth: 4
+    colorlinks: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(data.table)
+library(TreeSummarizedExperiment)
+
+wd <- here("hpc/fig3_composition/output_silva")
+```
+
+## create SummarizedExperiment object
+
+```{r}
+df_abundance <- fread(here(wd, "qiime2/abundance_tables/feature-table.tsv"), skip=1) %>%
+  column_to_rownames("#OTU ID") %>%
+  as.matrix()
+
+df_taxonomy <- fread(here(wd, "qiime2/taxonomy/taxonomy.tsv")) %>%
+  column_to_rownames("Feature ID") %>%
+  separate(Taxon, c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep=";") %>%
+  dplyr::select(-Confidence)
+
+df_metadata <- fread(here(wd, "metadata.tsv")) %>%
+  column_to_rownames("ID") %>%
+  as.matrix()
+
+# create summarizedexperiment object
+se <- SummarizedExperiment(
+  assays = list(counts = df_abundance),
+  rowData = df_taxonomy[rownames(df_abundance),],
+  colData = df_metadata
+)
+
+# plot taxonomy composition bar plot for each sample
+
+```
+
+## plot composition
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(ggthemes)
+
+# select the top 5 phylum
+df_taxonomy$Phylum <- factor(df_taxonomy$Phylum, levels = df_taxonomy$Phylum %>% unique() %>% sort(decreasing = TRUE) %>% head(5))
+df_metadata$Group <- factor(df_metadata$Group, levels = df_metadata$Group %>% unique() %>% sort(decreasing = TRUE))
+
+p <- ggplot(df_taxonomy, aes(x = Phylum, fill = Group)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854")) +
+  theme_pubr() +
+  theme(legend.position = "none") +
+  labs(x = "Phylum", y = "Number of OTUs") +
+  scale_y_continuous(breaks = seq(0, 2000, 500))
+
+p
+```
+
+## plot composition by sample
+
+```{r}
+df <- df_taxonomy %>%
+  mutate(Group = df_metadata$Group) %>%
+  group_by(Group, Phylum) %>%
+  summarize(count = n()) %>%
+  mutate(Phylum = factor(Phylum, levels = df_taxonomy$Phylum %>% unique() %>% sort(decreasing = TRUE) %>% head(5))) %>%
+  mutate(Group = factor(Group, levels = df_metadata$Group %>% unique() %>% sort(decreasing = TRUE)))
+
+p <- ggplot(df, aes(x = Phylum, y = count, fill = Group)) +
+  geom_col(position = "fill") +
+  scale_fill_manual(values = c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854")) +
+  theme_pubr() +
+  theme(legend.position = "none") +
+  labs(x = "Phylum", y = "Number of OTUs") +
+  facet_wrap(~Group, scales = "free_y")
+```
+
+```{r}
+df_abundance <- fread(here(wd, "qiime2/abundance_tables/feature-table.tsv"), skip=1) %>%
+  column_to_rownames("#OTU ID") %>%
+  as.matrix() %>%
+  otu_table(taxa_are_rows = TRUE)
+
+df_taxonomy <- fread(here(wd, "qiime2/taxonomy/taxonomy.tsv")) %>%
+  column_to_rownames("Feature ID") %>%
+  # split the taxonomy column into separate columns
+  tidyr::separate(Taxon, c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = ";") %>%
+  as.matrix() %>%
+  tax_table()
+
+df_metadata <- fread(here(wd, "metadata.tsv")) %>%
+  column_to_rownames("ID") %>%
+  sample_data()
+
+# create phyloseq object
+ps <- phyloseq(df_abundance, df_taxonomy, df_metadata)
+```
+
+```{r}
+ps2 <- tax_fix(ps) %>%
+  phyloseq_validate()
+```
+
+```{r}
+# ord_explore(ps2)
+```
+
+```{r}
+taxic <- ps2@tax_table %>%
+  as.data.frame()
+```
+
+```{r}
+ps1.com.fam <-  aggregate_rare(ps2, "Family", prevalence=0.01, min_abund=0.01)
+```
+
+```{r}
+plot.composition.COuntAbun <- plot_composition(ps1.com.fam) + theme(legend.position = "bottom") +
+  scale_fill_brewer("Family", palette = "Paired") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("Relative abundance") + guide_italics + theme(legend.title = element_text(size = 18))
+
+plot.composition.COuntAbun
+```

@@ -1,0 +1,42 @@
+---
+title: "project"
+author: "Jinlong Ru"
+format: 
+  html:
+    toc: true
+    toc-depth: 4
+    colorlinks: true
+---
+
+
+```{r}
+library(here)
+library(tidyverse)
+library(data.table)
+
+wd <- here("hpc/fig0_superfamily")
+```
+
+
+```{r}
+orf2family <- fread(here(wd, "orf2family.tsv.gz"))
+phydg_hq <- fread(here(wd, "phydg_hq.list"), sep="\t", header=FALSE) %>% 
+  data.frame() %>%
+  setnames("V1", "orf")
+
+hydgs <- phydg_hq %>% 
+  inner_join(orf2family, by="orf") %>%
+  dplyr::select(-orf) %>%
+  inner_join(orf2family, by="family") %>%
+  # remove duplicates
+  distinct()
+
+# write to tsv file without header and index using fwrite()
+fwrite(hydgs, here(wd, "hydgs.tsv"), sep="\t", row.names=FALSE, col.names=FALSE)
+
+# group by family and count each family
+hydgs %>% 
+  group_by(family) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+```

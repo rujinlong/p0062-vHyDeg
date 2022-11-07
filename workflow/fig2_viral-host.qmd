@@ -1,0 +1,48 @@
+---
+title: "Fig 2 - viral-host interactions"
+author: "Jinlong Ru"
+format: 
+  html:
+    toc: true
+    toc-depth: 4
+    colorlinks: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Fig 2 - viral-host interactions
+
+### Fig 2A
+
+```{r}
+library(here)
+library(tidyverse)
+library(igraph)
+
+wd <- here("hpc/fig02_viral-host")
+```
+
+```{r fig2a1, fig.cap="Fig 2A1", fig.align='center', out.width='100%'}
+# read in data
+vh <- read.csv(here(wd, "Host_prediction_to_genome_m90.csv"), header = TRUE)
+
+vh <- vh %>%
+  # split Host.taxonomy to multiple columns by ";"
+  tidyr::separate(Host.taxonomy, c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = ";")
+
+vh2 <- vh %>%
+  dplyr::select(c("Virus", "Species"))
+
+# create a graph
+g <- graph_from_data_frame(vh2, directed = FALSE)
+
+# plot the graph, show nodes labels
+plot(g, vertex.size = 2, vertex.color = "blue", edge.arrow.size = 0.5, edge.width = 0.5, layout = layout_with_fr, labelsize = 1)
+
+# save the graph to cytoscape format
+write.graph(g, file = here(wd, "fig2a1.graphml"), format = "graphml")
+```
+
+Then import the graph to cytoscape.

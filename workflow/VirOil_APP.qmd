@@ -1,0 +1,91 @@
+---
+title: "VirOil"
+author: "Jinlong Ru"
+format: 
+  html:
+    page-layout: custom
+server: shiny
+---
+
+## Hydrocarbon degradation
+
+
+```{r}
+library(here)
+library(tidyverse)
+library(data.table)
+
+dpath <- here("pipeline/canthyd")
+fp_isobp <- here("pipeline/canthyd/isophage_bac_all_canthyd.tsv")
+fp_isophage <- here("pipeline/canthyd/isophage_and_bac_dramv_canthyd.tsv")
+fp_wtp <- here("pipeline/canthyd/isophage_bac_all_wtp.csv")
+fp_plassprot <- here("pipeline/canthyd/virome_plassProt_canthyd.tsv")
+fp_virbin <- here("pipeline/canthyd/virome_dramv_geneBIN_canthyd.tsv")
+fp_virctg <- here("pipeline/canthyd/virome_dramv_geneCTG_canthyd.tsv")
+
+df_isobp <- fread(fp_isobp) %>% 
+  mutate(source = "Isolated bacteria and phages")
+df_isophage <- fread(fp_isophage) %>% 
+  mutate(source = "Isolated phages (DRAMv)")
+df_wtp <- fread(fp_wtp) %>% 
+  dplyr::select(-V1)
+df_plassprot <- fread(fp_plassprot) %>% 
+  mutate(source = "Virome PLASS assembled proteins")
+df_virbin <- fread(fp_virbin) %>% 
+  mutate(source = "Virome bins")
+df_virctg <- fread(fp_virctg) %>% 
+  mutate(source = "Virome contigs")
+
+df_canthyd <- rbind(df_isobp, df_isophage, df_plassprot, df_virbin, df_virctg)
+
+df_canthyd %>% 
+  dplyr::filter(source != "Isolated bacteria and phages") %>% 
+  dplyr::filter(bitscore >=20) %>% 
+  ggplot(aes(x=bitscore, fill=source)) +
+  # geom_histogram(aes(y=..density..), binwidth = 5) +
+  geom_histogram(binwidth = 5) +
+  # geom_density(aes(fill=source), alpha=0.2) +
+  geom_vline(aes(xintercept=50), color="blue", linetype="dashed") +
+  facet_grid(. ~ source)
+
+
+    
+  
+
+hist(df_virome$bitscore)
+df_virome %>% 
+  dplyr::filter(bitscore>=30)
+
+
+```
+
+
+
+```{r}
+#| context: setup
+library(JBrowseR)
+library(here)
+library(tidyverse)
+dpath_bac <- here("pipeline/bacannot/output/D45")
+if (FALSE) {data_server <- serve_data(dpath_bac)}
+assembly <- assembly("http://127.0.0.1:5000/annotation/D45.gbk", bgzip = F)
+tracks <- tracks(track_feature("http://127.0.0.1:5000/annotation/D45.gff", assembly))
+```
+
+```{r}
+#| panel: sidebar
+sliderInput("bins", "Number of bins:", 
+            min = 1, max = 50, value = 30)
+```
+
+```{r}
+#| panel: fill
+JBrowseROutput("browserOutput", height = "1000px")
+```
+
+```{r}
+#| context: server
+output$browserOutput <- renderJBrowseR(
+    JBrowseR("View", assembly = assembly, tracks = tracks)
+  )
+```

@@ -1,4 +1,5 @@
 .Rproj.user
+<<<<<<< HEAD
 .Rhistory
 .Rdata
 .httr-oauth
@@ -15,3 +16,7 @@ data/hms
 analysis
 hpc
 
+=======
+hpc
+.Rhistory
+>>>>>>> 27aca02 (ignore big data)

@@ -17,9 +17,11 @@ library(tidyverse)
 library(ggpubr)
 library(data.table)
 library(here)
+library(conflicted)
+conflict_prefer("filter", "dplyr")
 
 # data path
-wd <- here("hpc/fig01_lq_canthyd")
+wd <- here("/Users/allen/github/rujinlong/vhydeg/hpc/wetdry/fig01_lq_canthyd")
 db_canthyd <- "/Users/allen/data2/db/canthyd/cutoffs.tsv"
 db_pfam <- "/Users/allen/data2/db/pfam/pfam_desc.tsv"
 db_kegg <- "/Users/allen/data2/db/kegg/current/ko2pathway.tsv"
@@ -65,10 +67,10 @@ df_hyd <- fread(fin_hyd) %>%
 Split CANTHYD into true and false annotations
 
 ```{r}
-df_hyd_trusted <- df_hyd %>% filter(trusted == 1)
-df_hyd_nottrusted <- df_hyd %>% filter(trusted == 0)
-df_hyd_notnoise <- df_hyd %>% filter(notnoise == 1)
-df_hyd_noise <- df_hyd %>% filter(notnoise == 0)
+df_hyd_trusted <- df_hyd %>% dplyr::filter(trusted == 1)
+df_hyd_nottrusted <- df_hyd %>% dplyr::filter(trusted == 0)
+df_hyd_notnoise <- df_hyd %>% dplyr::filter(notnoise == 1)
+df_hyd_noise <- df_hyd %>% dplyr::filter(notnoise == 0)
 ```
 
 Plot horizontal barplot

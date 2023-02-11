@@ -1,0 +1,84 @@
+---
+title: "71-phams"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "71-phams"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup, message=FALSE, include=FALSE}
+here::i_am(paste0(params$name, ".qmd"), uuid = "7edde54d-48ab-4b97-a09d-67e426ba91b0")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(here)
+```
+
+### Read phams
+
+This phams were created using all datasets, which includes,
+
+1. IMGVR
+2. P0062 virome
+3. NCBI
+4. PHROGs
+5. Isolated phages
+6. Isolated bacteria
+7. ...
+
+::: {.callout-warning}
+## Not used in publication
+
+This dataset is not used in the final publication.
+:::
+
+```{python}
+import pandas as pd
+import os
+from Bio import SeqIO
+
+def create_orf2family_with_seq(fin_orf2family, fin_faa):
+    orf2family = pd.read_csv(fin_orf2family, sep="\t")
+    recs = list(SeqIO.parse(fin_faa, "fasta"))
+    seqs = []
+    for rec in recs:
+        seqs.append([rec.id, str(rec.seq)])
+    seqs = pd.DataFrame(seqs, columns=["orf", "seq"])
+    df_orf2family = pd.merge(orf2family, seqs, on="orf", how="inner")
+    return df_orf2family
+
+
+fin_orf2family = os.path.join(r.path_data, "orf2subfamily2family.tsv")
+fin_faa = os.path.join(r.path_data, "all_fam.faa")
+
+df_orf2family = create_orf2family_with_seq(fin_orf2family, fin_faa)
+fout = os.path.join(r.path_target(), "orf2family_with_seq.tsv")
+df_orf2family.to_csv(fout, sep="\t", index=False)
+```
+
+
+## Tasks
+
+The first task is ...
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

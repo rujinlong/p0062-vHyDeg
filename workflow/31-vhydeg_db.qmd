@@ -1,0 +1,583 @@
+---
+title: "vHyDeg database preparation"
+title-block-banner: true
+subtitle: Creating dataset for vHyDeg database
+description: |
+  The purpose of this document is to filter vHYDEGs identified from IMG/VR database.
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2022-11-06
+toc: true
+toc-depth: 4
+number-sections: true
+code-fold: true
+code-line-numbers: true
+code-tools: true
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    page-layout: article
+    theme: 
+      light: flatly
+      dark: darklyk
+reference-location: margin
+citation-location: margin
+bibliography: refs.bib
+cls: bioinformatics.csl
+params:
+  name: "31-vhydeg_db"
+---
+
+*Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.*
+
+1. Import the CANT-HYD annotations of IMG/VR proteins.
+2. Add CANT-HYD HMM cutoffs and `bitscore_vmax` from PHROGs database.
+3. Filter hits based on multiple criteria.
+4. Save the selected vHYDEGs with annotation to `.rds` file for the vHyDeg database.
+5. Save the selected genome list to file for genome annotation.
+6. Add extra genome annotations
+  - Taxonomy annotation
+  - Host prediction
+
+```{r setup}
+#| message: false
+#| warning: false
+#| echo: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "1951ebaf-db7c-494b-ab21-3d2f6230708c")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+
+library(here)
+library(conflicted)
+library(tidyverse)
+library(data.table)
+library(seqinr)
+library(reticulate)
+library(networkD3)
+devtools::load_all(".")
+```
+
+## Tasks
+
+### IMG/VR viral protein annotation and genome filtering
+
+Viral proteins in IMG/VR database were annotated using hmmsearch [@1998-Profile_Eddy] searching against the CANT-HYD database [@2022-CANTHYD_Khot].
+
+```{r params}
+fin_vhydegs <- here(path_data, "imgvr_vhydeg_all.tsv")
+fin_canthyd_thr <- here(path_data, "canthyd_cutoffs.tsv")
+fin_phrogs_clusters <- here(path_data, "phrog_cluster_canthyd.tsv")
+fin_phrogs_anno <- here(path_data, "phrog_annot_v4.tsv")
+fin_genome_info <- here(path_data, "imgvr_vhydeg_genomes.tsv")
+
+fout_vhydegs <- path_target("vhydegs_filter1.tsv")
+
+idx = "trusted_idx"
+idx_threshold = 0.5
+genome_minlen = 5000
+bitscore_min = 150
+evalue_max = 0.00001
+fsize_axis = 8
+```
+
+
+```{python Filtering vHYDEGs}
+import os
+import pandas as pd
+import pyscript as pys
+
+df_vhydegs = pys.read_canthyd_annotation(r.fin_vhydegs, skip_non_NdoB=True)
+df_cutoffs = pys.read_cutoffs(r.fin_canthyd_thr)
+df_phrogs= pys.read_phrogs(r.fin_phrogs_clusters, r.fin_phrogs_anno)
+df_genomes = pys.read_genome_info(r.fin_genome_info)
+
+df = pys.merge_dfs(df_vhydegs, df_cutoffs, df_phrogs, df_genomes)
+df_vhydegs_filter1 = df[(df['evalue'] < r.evalue_max) & (df['bitscore'] > r.bitscore_min) & (df['genome_length'] > r.genome_minlen)].copy()
+df_vhydegs_filter1["vHYDEG_quality"] = df_vhydegs_filter1.apply(lambda x: "HQ" if x[r.idx] > float(r.idx_threshold) else "LQ", axis=1)
+df_vhydegs_filter1["vHYDEG_quality"] = df_vhydegs_filter1.apply(lambda x: "MQ" if (x["Topology"]=="Provirus") | (x["Contamination"]>0)  else x["vHYDEG_quality"], axis=1)
+# df2 = filter_NRqry_proteins(df)
+
+df_vhydegs_filter1.to_csv(r.fout_vhydegs, sep="\t", index=False)
+```
+
+In total, there are **`r nrow(py$df_vhydegs)`** putative vHYDEGs detected from IMG/VR database, which contains **`r n_distinct(py$df_vhydegs$dbid)`** of 37 protein families in CANT-HYD database. Hits were filtered using following strategy (*filter1*),
+
+1. `bitscore` > `bitscore_vmax`
+2. `evalue` < **`r evalue_max`**
+3. `genome_length` > **`r genome_minlen`**
+4. `bitscore` > **`r bitscore_min`**
+
+After the first filtering (*filter1*), there are **`r nrow(py$df_vhydegs_filter1)`** putative vHYDEGs remained, which contains **`r n_distinct(py$df_vhydegs_filter1$gene_name)`** of 37 protein families in CANT-HYD database. These hits were then classified into HQ, MQ and LQ based on,
+
+1. HQ: **`r idx`** > **`r idx_threshold`**. **`r idx`** and its threshold were selected based on the fact that pBmoC has a trusted_idx ~0.5. Noting that the threshold "0.5" is selected based only on pBmoC, this threshold is a rough setting and can be adjusted based on the specific protein of interest.
+2. MQ: HQ but classified as provirus or has contamination > 0
+2. LQ: Others
+
+Summary of hits based on `vHYDEG_quality` is shown below,
+
+```{r}
+#| echo: false
+table(py$df_vhydegs_filter1$vHYDEG_quality)
+```
+
+```{r save genome list}
+#| include: false
+py$df_vhydegs_filter1 %>% 
+  dplyr::select(genome_id) %>% 
+  distinct() %>% 
+  fwrite(file = path_target("imgvr_genome.list"), col.names = F)
+```
+
+
+#### Add replication lifestyle prediction
+
+```{r}
+fin_bacphlip <- here(path_data, "replicyc_bacphlip.tsv")
+df_bacphlip <- vpfkit::read_replicyc(fin_bacphlip) %>% 
+  dplyr::mutate(genome_id = str_replace_all(Contig, "__.*", "")) %>% 
+  dplyr::select(-"Contig")
+
+
+df_temperate <- df_bacphlip %>% 
+  dplyr::filter(bacphlip_replicyc == "temperate") %>% 
+  distinct()
+
+df_replicyc <- df_bacphlip %>% 
+  dplyr::select("genome_id") %>% 
+  distinct() %>% 
+  dplyr::left_join(df_temperate, by = "genome_id") %>% 
+  # fill NA in "bacphlip_replicyc" with "virulent"
+  tidyr::replace_na(list(bacphlip_replicyc = "virulent"))
+
+df_vhydegs_filter1 <- py$df_vhydegs_filter1 %>% 
+  left_join(df_replicyc, by = "genome_id") %>% 
+  dplyr::mutate(bacphlip_replicyc = ifelse(Topology == "Provirus", "temperate", bacphlip_replicyc)) %>% 
+  # format gene name
+  dplyr::mutate(gene_name = ifelse(gene_name == "pBmoC", "PmoC", gene_name)) %>% 
+  dplyr::mutate(gene_name = ifelse(gene_name == "pBmoA", "PmoA", gene_name))
+```
+
+Among the **`r nrow(df_vhydegs_filter1)`** filter1 genomes, number of virulent and temperate genomes were shown below,
+
+```{r}
+table(df_vhydegs_filter1$bacphlip_replicyc)
+```
+
+
+### Bit-score distribution
+
+```{r}
+#| fig-cap: Distribution of bitscore of vHYDEGs
+#| cap-location: margin
+#| label: p_bitscore
+#| warning: false
+#| message: false
+
+df_bitscore <- df_vhydegs_filter1 %>%
+  # dplyr::select(c("gene_name", "bitscore"))
+  # dplyr::select(c("vHYDEG_quality", "bitscore")) %>%
+  dplyr::select(c("vHYDEG_quality", "trusted_idx")) %>%
+  dplyr::mutate(vHYDEG_quality = factor(vHYDEG_quality, levels = c("HQ", "MQ", "LQ")))
+
+# plot hitstogram of bitscore, and stacked by vHYDEG_quality
+p_bitscore <- ggplot(df_bitscore, aes(x = trusted_idx, fill = vHYDEG_quality)) +
+  geom_histogram(binwidth = 0.01) +
+  scale_fill_manual(values = c("#b2df8a", "#a6cee3", "#fdbf6f")) +
+  # add a vertical dashed line at x=1
+  # geom_vline(xintercept = 1, linetype = "dashed", color = "#33a02c", alpha = 0.5) +
+  # geom_vline(xintercept = 0.5, linetype = "dashed", color = "#e31a1c", alpha = 0.5) +
+  theme_gray() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1, size = 7),
+        axis.text.y = element_text(angle = 0, size = 7),
+        axis.title = element_text(size = fsize_axis),
+          legend.title = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.key.size =  unit(0.5, "cm"),
+        plot.title = element_text(size=10))+
+  labs(x = "Trust index", 
+       fill = "vHYDEG quality",
+       # title = "Trust index distribution vHYDEGs",
+       y = "Number of genes")
+
+ggsave(path_target("plt_bar_bitscore.png"), p_bitscore, width = 7, height = 3.5)
+p_bitscore
+```
+
+Among the **`r nrow(df_vhydegs_filter1)`** vHYDEGs, only **`r nrow(df_vhydegs_filter1[df_vhydegs_filter1$trusted_idx>1,])`** has trusted index > 1, **`r nrow(df_vhydegs_filter1[df_vhydegs_filter1$trusted_idx>0.5,])`** has trusted index > 0.5, indicating that most vHYDEGs were not contain the full sequence as their host counterpart, or encode novel domains that might have new metabolic functions.
+
+
+### Filter2: HQ and MQ hits
+
+```{r}
+df_vhydegs_filter2 <- df_vhydegs_filter1 %>% 
+  dplyr::filter(vHYDEG_quality %in% c("HQ", "MQ"))
+```
+
+#### Ecology distribution
+
+Create a sankey plot using `networkD3` package.
+
+```{r}
+#| fig-cap: Sankey plot of ecology distribution of vHYDEGs
+#| cap-location: margin
+#| label: p_sankey
+#| warning: false
+#| message: false
+
+df_sankey <- df_vhydegs_filter1 %>% 
+  dplyr::select(c("Ecosystem")) %>% 
+  dplyr::filter(!str_detect(Ecosystem, "^;")) %>% 
+  tidyr::separate(Ecosystem, c("Ecosystem1", "Ecosystem2", "Ecosystem3", "Ecosystem4"), sep = ";")
+
+# Create a node dataframe for sankey plot
+nodes <- data.frame(name = unique(c(df_sankey$Ecosystem1, df_sankey$Ecosystem2, df_sankey$Ecosystem3, df_sankey$Ecosystem4))) %>% 
+  dplyr::filter(name!="Unclassified")
+
+# Create a links dataframe for sankey plot
+links1 <- data.frame(source = match(df_sankey$Ecosystem1, nodes$name) - 1,
+                     target = match(df_sankey$Ecosystem2, nodes$name) - 1,
+                     value = nrow(df_sankey))
+links2 <- data.frame(source = match(df_sankey$Ecosystem2, nodes$name) - 1,
+                      target = match(df_sankey$Ecosystem3, nodes$name) - 1,
+                      value = nrow(df_sankey))
+links3 <- data.frame(source = match(df_sankey$Ecosystem3, nodes$name) - 1,
+                      target = match(df_sankey$Ecosystem4, nodes$name) - 1,
+                      value = nrow(df_sankey))
+links <- rbind(links1, links2, links3) %>% 
+  dplyr::filter(target!=5)
+
+
+p_sankey <- sankeyNetwork(Links = links, Nodes = nodes, Source = "source", Target = "target", Value = "value",
+              nodeWidth = 20, height = 600, width = 800, fontSize = 13,  iterations = 50, NodeGroup = "name")
+
+htmlwidgets::saveWidget(p_sankey, file = path_target("plt_sankey.html"))
+p_sankey
+```
+
+
+#### Prevalence of vHYDEGs based on `Topology`
+
+```{r}
+#| fig-cap: Number of viral genomer per genome topology
+#| cap-location: margin
+#| label: p_topology
+#| warning: false
+#| message: false
+
+library(ggrepel)
+
+df_topology_groups <- df_vhydegs_filter1 %>%
+  dplyr::select(c("genome_id", "Topology", "bacphlip_replicyc")) %>% 
+  distinct() %>% 
+  dplyr::select(-"genome_id") %>% 
+  group_by(Topology, bacphlip_replicyc) %>%
+  summarise(count = n()) %>% 
+  pivot_wider(names_from = bacphlip_replicyc, values_from = count) %>% 
+  pivot_longer(names_to = "lifestyle", values_to = "count", -Topology)
+  # dplyr::mutate(Topology = factor(Topology, levels = c("Direct terminal repeat", 
+  #                                                      "Inverted terminal repeat",
+  #                                                      "Linear",
+  #                                                      "GVMAG",
+  #                                                      "Provirus"))) %>% 
+  # setnames("bacphlip_replicyc", "lifestyle")
+
+# plot stacked bar plot, x axis is gene name, y axis is number of genomes, fill is vHYDEG quality
+p_topology <- df_topology_groups %>%
+  ggplot(aes(x = reorder(Topology, count, decreasing=TRUE), y = count, fill = lifestyle)) +
+    geom_bar(stat = "identity",  position = "dodge") +
+    scale_fill_manual(values = c("virulent" = "#B199BD", "temperate" = "#99C671")) +
+    # geom_text_repel(aes(label = count), position = position_stack(vjust = 0.5), size = 2, direction = "y", seed = 42, box.padding = 0.5) +
+    # geom_text(aes(label = count), position = position_dodge2(width=1), size = 2) +
+    geom_text(aes(label = count), vjust = -0.5, position = position_dodge(width = 0.8), size = 2) +
+    theme_gray() +
+    theme(axis.text.x = element_text(angle = 15, hjust = 1, size = 7),
+            axis.text.y = element_text(angle = 0, size = 7),
+            axis.title = element_text(size = fsize_axis),
+            legend.title = element_text(size = 8),
+            legend.text = element_text(size = 8),
+            legend.key.size =  unit(0.5, "cm"),
+            plot.title = element_text(size=10)) +
+    labs(x = "Genome topology",
+         fill = "Lifestyle",
+         # title = "Number of viral genomes per genome topology"),
+         y = "Number of viruses")
+
+ggsave(path_target("plt_bar_topology.png"), p_topology, width = 5, height = 3)
+p_topology
+```
+
+
+Topology distribution
+
+```{r}
+tibble(df_topology_groups)
+```
+
+
+
+#### Prevalence of vHYDEGs based on `vHYDEG_quality`
+
+```{r}
+#| fig-cap: Number of viral genomer per vHYDEG
+#| cap-location: margin
+#| label: p_quality
+#| warning: false
+#| message: false
+
+p_quality <- df_vhydegs_filter1 %>% 
+  dplyr::select(c("gene_name", "vHYDEG_quality")) %>% 
+  group_by(gene_name, vHYDEG_quality) %>%
+  summarise(count = n()) %>% 
+  pivot_wider(names_from = vHYDEG_quality, values_from = count) %>% 
+  # replace(is.na(.), 0) %>%
+  pivot_longer(names_to = "vHYDEG_quality", values_to = "count", -gene_name) %>% 
+  dplyr::arrange(gene_name, vHYDEG_quality) %>% 
+  dplyr::mutate(vHYDEG_quality = factor(vHYDEG_quality, levels = c("HQ", "MQ", "LQ"))) %>% 
+  ggplot(aes(x = gene_name, y = count, fill = vHYDEG_quality)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = c("HQ" = "#b2df8a", "MQ" = "#a6cee3", "LQ" = "#fdbf6f")) +
+    geom_text(aes(label = count), vjust = -0.5, position = position_dodge(width = 0.8), size = 2) +
+    theme_gray() +
+    theme(axis.text.x = element_text(angle = 20, hjust = 1, size = 7),
+          axis.text.y = element_text(angle = 0, size = 7),
+          plot.title = element_text(size=10),
+          legend.title = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.key.size =  unit(0.5, "cm"),
+          axis.title = element_text(size = fsize_axis)) +
+    labs(x = "Gene name",
+         fill = "vHYDEG quality",
+         # title = "Number of viral genomes per vHYDEG",
+         y = "Number of viruses")
+
+ggsave(path_target("plt_bar_quality.png"), p_quality, width = 7, height = 3.5)
+p_quality
+```
+
+The most prevalent vHYDEGs are *AlkB*, followed by *CYP153*, *pBmoC*, *LadA_beta* and *AlmA*. *pBmoC* has been detected in previous studies, but the other four are novel.
+
+### Select genomes
+
+Remove *non_NdoB_type* since it's not well defined in the CANT-HYD database.
+
+```{r}
+# fin_vhydegs <- here(path_data, "vHYDEGs.tsv")
+fout_imgvr_genome_list <- path_target("imgvr_genome.list")
+genome_id_reps <- c("IMGVR_UViG_3300010153_000012", "IMGVR_UViG_3300047480_000631", "IMGVR_UViG_3300015615_000950", "IMGVR_UViG_3300035703_002088", "IMGVR_UViG_3300048625_000166", "IMGVR_UViG_3300020463_000001")
+
+df_vhydegs_filter2 <- fread(fout_vhydegs) %>% 
+  dplyr::mutate(vhydeg_rep = ifelse(genome_id %in% genome_id_reps, "yes", "no"))
+
+gene_names <- sort(unique(df_vhydegs_filter2$gene_name))
+
+# save IMGVR genome list
+df_vhydegs_filter2 %>% 
+  dplyr::select(genome_id) %>% 
+  distinct() %>% 
+  fwrite(file = fout_imgvr_genome_list, col.names = F)
+```
+
+There are **`r nrow(df_vhydegs_filter2)`** vHYDEGs in total, as shown below.
+
+```{r}
+#| column: screen-inset-shaded
+#| tbl-cap: "vHYDEGs filter2"
+#| cap-location: bottom
+#| warning: false
+DT::datatable(df_vhydegs_filter2, 
+              filter = "top", 
+              class = 'white-space: nowrap',
+              extensions = c("Buttons"),
+              options = list(dom="Bfrtip",
+                             buttons=c("csv", "excel"))
+              )
+```
+
+### Save HQ hits to `.rds` file
+
+In this study, we only analyzed viral genomes that encode HQ vHYDEGs.
+
+```{r}
+#| column: screen-inset-shaded
+#| tbl-cap: "vHYDEGs HQ"
+#| cap-location: bottom
+#| warning: false
+fout_vhydeg_hq <- path_target("vhydeg_hq.xlsx")
+
+df_vhydegs_hq <- df_vhydegs_filter2 %>% 
+  dplyr::filter(vHYDEG_quality == "HQ") %>% 
+  dplyr::select(-c("gene_description", "evalue", "Eenzyme", "Broad_Enzymatic_Group", "Hydrocarbon_Group", "Respiration", "Trusted_Cutoff", "Noise_Cutoff", "HMM_length", "Closely_related_genes_above_trusted_cutoff", "bitscore_vmax", "phrog_evalue", "phrog_category", "Taxon_oid", "geNomad_score", "Taxa_method", "Sequence_origin", "MIUViG_quality", "Host_taxonomy", "Host_prediction_method", "Confidence", "vHYDEG_quality"))
+
+openxlsx::write.xlsx(df_vhydegs_hq, fout_vhydeg_hq)
+
+DT::datatable(df_vhydegs_hq, 
+              filter = "top", 
+              extensions = c("Buttons"),
+              options = list(dom="Bfrtip",
+                             buttons=c("csv", "excel"))
+              )
+```
+
+There are `r nrow(df_vhydegs_hq)` viral genomes encode HQ vHYDEGs. Number of genomes of each vHYDEGs are,
+
+```{r}
+sort(table(df_vhydegs_hq$gene_name), decreasing = T)
+```
+
+Filtered proteins were then manually curated to decrease false positives. Finally, one protein sequence was selected for each vHYDEGs, and was used in downstream analysis.
+
+### Add extra annotation
+
+
+#### Taxonomy annotation
+
+Taxonomy were assigned using MMseqs2 taxonomy module searching against NCBI viral proteins.
+
+```{r}
+fin_taxa <- here(path_data, "imgvr57_taxa_formatted_all.tsv")
+
+df_taxa <- vpfkit::read_taxonomy2(fin_taxa) %>% 
+  setnames("Contig", "genome_id")
+
+df_vhydegs_hq2 <- df_vhydegs_hq %>% 
+  left_join(df_taxa, by = "genome_id")
+
+table(df_vhydegs_hq2$Family)
+```
+
+
+
+#### Host prediction
+
+```{r}
+#| column: screen-inset-shaded
+#| tbl-cap: "vHYDEGs host"
+#| cap-location: bottom
+#| warning: false
+fin_hostgenome <- here(path_data, "Host_prediction_to_genome_m90.csv")
+fin_hostgenus <- here(path_data, "Host_prediction_to_genus_m90.csv")
+
+df_hostgenus <- vpfkit::read_iphop(fin_hostgenus)
+df_hostgenome <- fread(fin_hostgenome) %>% 
+  setnames("Virus", "genome_id")
+
+df_vhydegs_hq3 <- df_vhydegs_hq2 %>%
+  left_join(df_hostgenome, by = "genome_id")
+
+# a <- df_hostgenome %>% 
+#   left_join(df_vhydegs_hq, by = "genome_id")
+
+DT::datatable(df_vhydegs_hq3, 
+              filter = "top", 
+              extensions = c("Buttons"),
+              options = list(dom="Bfrtip",
+                             buttons=c("csv", "excel"))
+              )
+```
+
+#### FPAM
+
+```{r PFAM}
+fin <- here(path_data, "pfam.tsv")
+df_pfam <- fread(fin) %>% 
+  dplyr::mutate(dbacc = str_replace(db_acc, "\\..*", "")) %>% 
+  dplyr::mutate(description = str_c(hmm_description, " [", dbacc, "]")) %>% 
+  dplyr::filter(evalue < 0.00001 & bitscore > 50)
+
+p_pfam <- df_pfam %>% 
+  dplyr::count(description) %>%
+  arrange(desc(n)) %>%
+  mutate(description = reorder(description, n)) %>% 
+  ggplot(aes(x = description, y = n)) +
+    geom_bar(stat = "identity", fill = "#8DB5CA") +
+    # geom_text(aes(label = n), position = position_stack(vjust = 0.5), size = 2.8) +
+    geom_text(aes(label = n), vjust = 0.4, position = position_nudge(x = 0, y = 20), size = 2) +
+    coord_flip() +
+    theme_gray() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 1, size = 7),
+          axis.text.y = element_text(angle = 0, size = 7),
+          plot.title = element_text(size=10),
+          legend.position = "none",
+          axis.title = element_text(size = fsize_axis)) +
+    labs(y = "Number of genes",
+         # title = "Pfam annotation of vHYDEG proteins",
+         x = "Pfam domain")
+
+# save plot 
+ggsave(path_target("plt_pfam.png"), plot = p_pfam, width = 5.8, height = 3)
+p_pfam
+```
+
+
+```{r Fig.1}
+#| fig-width: 20
+#| fig-height: 20
+#| warning: false
+#| message: false
+library(patchwork)
+
+pmerge1 <- p_bitscore + p_quality +
+  plot_layout(widths = c(3.95, 6.05), guides = "collect")
+
+pmerge2 <- p_topology + p_pfam +
+  plot_layout(widths = c(5, 5))
+
+pmerge <- pmerge1 / pmerge2 +
+  plot_layout(heights = c(4,6)) &
+  plot_annotation(tag_levels = "A") &
+  theme(plot.tag = element_text(size = 10))
+
+ggsave(path_target("fig1.png"), plot = pmerge,  width = 12, height = 7, dpi = 500)
+```
+
+
+```{r prepare data for shiny APP}
+fp_imgvr_ipr <- here(path_data, "ap_vHYDEGs_interpro.tsv.gz")
+fp_phrog <- here(path_data, "phrog_cluster_canthyd.tsv")
+fp_phrog_desc <- here(path_data, "phrog_annot_v4.tsv")
+df_imgvr_ipr <- read_ipr(fp_imgvr_ipr)
+
+df_phrog_desc <- fread(fp_phrog_desc) %>% 
+  mutate(phrog_id = str_c("phrog_", phrog)) %>% 
+  mutate(phrog_annot = annot) %>% 
+  mutate(phrog_category = category) %>% 
+  dplyr::select(c(phrog_id, phrog_annot, phrog_category))
+
+df_phrog <- fread(fp_phrog) %>% 
+  mutate(phrog_id = str_replace(query_id, "_[a-zA-Z].*", "")) %>% 
+  # dplyr::select(c(dbid, bitscore, phrog_id, query_id)) %>% 
+  dplyr::select(c(dbid, bitscore, phrog_id)) %>% 
+  arrange(desc(bitscore)) %>%
+  distinct(dbid, .keep_all = TRUE) %>% 
+  setnames(c("dbid", "bitscore"), c("gene_name", "bitscore_vmax")) %>%  # viral max bitscore
+  left_join(df_phrog_desc, by = "phrog_id")
+
+df_app <- df_vhydegs_filter2 %>% 
+  left_join(df_imgvr_ipr, by = "gene_id") %>% 
+  dplyr::mutate(gene_name = ifelse(gene_name == "pBmoC", "PmoC", gene_name)) %>% 
+  dplyr::mutate(gene_name = ifelse(gene_name == "pBmoA", "PmoA", gene_name))
+
+
+gene_names <- sort(unique(df_app$gene_name))
+
+vhydeg_db <- list(
+               df_imgvr = df_app,
+               df_phrog = df_phrog,
+               gene_names = gene_names)
+
+saveRDS(vhydeg_db, path_target("vhydeg_db.rds"))
+```
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```: here I type more to test the width of the page
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

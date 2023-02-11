@@ -1,0 +1,98 @@
+---
+title: "84-vcontact2"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "84-vcontact2"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+
+```{r setup}
+#| message: false
+#| include: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "1be0ae99-d707-4f2e-b137-411f7e88407c")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(here)
+```
+
+## Tasks
+
+The first task is ...
+
+```{python}
+import os
+import pandas as pd
+import seaborn as sns
+
+fin_vc2 = os.path.join(r.path_data, "genome_by_genome_overview.csv")
+fin_mmtaxa = os.path.join(r.path_data, "imgvr57_taxa_formatted_all.tsv")
+fout_cytoscape = r.path_target("genome_by_genome_overview_color.csv")
+
+df = pd.read_csv(fin_vc2)
+# if column "Genome" starts with "IMGVR", then set column "Family" to "IMGVR"
+df.loc[df.Genome.str.startswith("IMGVR"), "Family"] = "IMGVR"
+
+
+# Set color to each family
+# convert a to a dataframe
+df_color = pd.DataFrame(df.Family.value_counts())
+df_color = df_color.reset_index()
+df_color.columns = ["Family", "n_count"]
+
+
+# assign a color to the top 12 families, and the rest to grey
+df_color["color"] = "#a9a9a9"
+colors = sns.husl_palette(12).as_hex()
+colors.reverse()
+df_color.loc[0:11, "color"] = ['#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5','#d9d9d9','#bc80bd','#ccebc5','#ffed6f']
+# IMGVR as blue
+df_color.loc[df_color.Family == "IMGVR", "color"] = "#4285f4"
+# merge df_color to df
+df2 = pd.merge(df, df_color, on = "Family", how = "left")
+
+
+# Add MMseqs2 taxonomy annotation to IMGVR genomes
+df_taxa = pd.read_csv(fin_mmtaxa, sep = "\t")
+df_taxa_family = df_taxa[["contig_id", "Family", "Genus", "Species"]].copy()
+# add "mmtaxa_" to the beginning of column name
+df_taxa_family.columns = ["mmtaxa_" + i for i in df_taxa_family.columns]
+# rename column "mmtaxa_contig_id" to "Genome"
+df_taxa_family = df_taxa_family.rename(columns = {"mmtaxa_contig_id": "Genome"})
+
+# merge df_taxa_family to df2
+df3 = pd.merge(df2, df_taxa_family, on = "Genome", how = "left")
+
+# Save df3 to csv, the file will be imported into CytoScape
+df3.to_csv(fout_cytoscape, index = False)
+```
+
+
+```{r}
+
+```
+
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

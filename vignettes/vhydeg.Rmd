@@ -1,0 +1,20 @@
+---
+title: "vhydeg"
+output: rmarkdown::md_vignette
+vignette: >
+  %\VignetteIndexEntry{vhydeg}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(vhydeg)
+print("hello")
+```

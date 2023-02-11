@@ -1,0 +1,243 @@
+---
+title: "02-tree"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "02-tree" # change if you rename file
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup, message=FALSE, include=F}
+here::i_am(paste0("02-tree", ".qmd"), uuid = "20b15ccd-2433-4af1-923b-52ae9a25b734")
+projthis::proj_create_dir_target(params$name, clean = F)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+```{r library, message=FALSE, include=F}
+library(conflicted)
+library(here)
+library(tmaptools)
+library(tidyverse)
+library(ggnewscale)
+library(data.table)
+library(treedataverse)
+
+fnws <- list.files(path_data, pattern = ".nwk$", full.names = T)
+names(fnws) <- str_replace_all(fnws, ".*/", "") %>% str_replace_all(".nwk", "")
+fin_cfg <- path_source("00-raw/config.xlsx")
+cfgs <- openxlsx::read.xlsx(fin_cfg, sheet = params$name, rowNames = T)
+```
+
+## Tasks
+
+The first task is ...
+
+```{r functions}
+save_tree <- function(tree, fout, scale=0.75, legeng_x=1.2, tipsize=1, pointsize=0.2, width=9, height=6) {
+  p <- ggtree(tree, layout = "fan", size=0.1) +
+    geom_tiplab(aes(label=label), size=tipsize, align=TRUE, linesize=.1, hjust=0) +
+    geom_tippoint(aes(color=source), alpha=0.7, size=pointsize) +
+    theme_tree(legend.position = c(legeng_x, 0.5))
+  p2 <- ggplotify::as.ggplot(p, angle=0, scale=scale)
+  ggsave(p2, filename = fout, width = width, height = height)
+  return(p2)
+}
+
+import_node_annotation <- function(fp_anno) {
+  df_anno <- read.csv(fp_anno, sep = "\t") %>% 
+    dplyr::select(c(target_id, tax_lineage)) %>%
+    # separate column "taxa_lineage" into multiple columns
+    tidyr::separate(tax_lineage, c("kingdom", "phylum", "class", "order", "family", "genus", "species"), sep = ";") %>%
+    # remove duplicate rows
+    dplyr::distinct() %>%
+    dplyr::mutate(phylum = ifelse(phylum == "", paste0("Unknown ", kingdom), phylum)) %>%
+    dplyr::mutate(showname = paste(kingdom, phylum, class, order, family, genus, species, sep = ";")) %>%
+    dplyr::mutate(showname = str_replace_all(showname, ";+$", "")) %>%
+    dplyr::mutate(showname = str_replace_all(showname, ".*;", ""))
+    # dplyr::select(-c(class, order, family, genus, species))
+  
+  return(df_anno)
+}
+
+import_tree <- function(fp_tree, fp_anno) {
+  df_anno <- import_node_annotation(fp_anno)
+  tree <- read.tree(fp_tree) %>% 
+    as_tibble() %>% 
+    mutate(source = ifelse(str_detect(label, "IMGVR"), "IMGVR", "NCBI")) %>% 
+    left_join(df_anno, by = c("label" = "target_id")) %>%
+    as.treedata()
+  
+  return(tree)
+}
+```
+
+
+
+```{r}
+plot_tree <- function(fnw) {
+  fanno <- str_replace(fnw, ".nwk$", ".tsv")
+  protid <- str_replace_all(fnw, ".*/", "") %>% str_replace_all(".nwk$", "")
+  
+  df_anno <- import_node_annotation(fanno) %>% 
+    setnames("target_id", "label") %>%
+    dplyr::mutate(phylum = ifelse(phylum == "", "Unknown phylum", phylum)) %>%
+    dplyr::mutate(showname = paste(kingdom, phylum, class, order, family, genus, species, sep = ";")) %>%
+    dplyr::mutate(showname = str_replace_all(showname, ";+$", "")) %>%
+    dplyr::mutate(showname = str_replace_all(showname, ".*;", ""))
+
+  df_UVIG <- fread(here(path_data, "imgvr_genome.tsv")) %>%
+    dplyr::select(c(UVIG, Ecosystem, Taxa_classification)) %>%
+    dplyr::mutate(phylum = str_extract(Taxa_classification, "(?<=p__)[^;]*(?=;c__)")) %>%
+    tidyr::separate(Ecosystem, c("Eco1", "Eco2", "Eco3", "Eco4"), sep = ";") %>%
+    dplyr::select(-Taxa_classification)
+
+  tree <- read.tree(fnw)
+
+  imgvr_nodes <- tree %>%
+    as_tibble() %>%
+    dplyr::filter(str_detect(label, "IMGVR")) %>%
+    dplyr::select(node, label)
+
+  tdata_imgvr <- imgvr_nodes %>%
+    dplyr::select(label) %>%
+    mutate(UVIG = str_replace(label, "__.*", "")) %>%
+    left_join(df_UVIG, by = "UVIG") %>%
+    mutate(kingdom = "Viruses") %>%
+    dplyr::mutate(showname = UVIG)
+
+  # Add NR protein annotation (kingdom)
+  tdata_ncbi <- tree %>%
+    as_tibble() %>%
+    dplyr::select(label) %>%
+    inner_join(df_anno, by = "label")
+
+  # Merge IMGVR and NR annotation
+  tdata <- dplyr::bind_rows(tdata_imgvr, tdata_ncbi) %>%
+    dplyr::mutate(kingdom=ifelse(kingdom=="", "Unknown", kingdom))
+
+  tree2 <- tree %>%
+    as_tibble() %>%
+    left_join(tdata, by = "label") %>%
+    mutate(protid = ifelse(is.na(protid), label, protid)) %>%
+    mutate(source = ifelse(str_detect(label, "^IMGVR"), "IMG/VR", "NCBI NR")) %>%
+    mutate(label = ifelse(str_detect(label, "^IMGVR"), str_replace_all(label, "__.*", ""), label)) %>%
+    as.treedata()
+
+  df_eco1 <- tree2 %>%
+    as_tibble() %>%
+    dplyr::filter(!is.na(Eco2)) %>%
+    dplyr::select(c(label, Eco2)) %>%
+    column_to_rownames("label")
+
+  df_eco4 <- tree2 %>%
+    as_tibble() %>%
+    dplyr::filter(!is.na(Eco4)) %>%
+    dplyr::select(c(label, Eco4)) %>%
+    column_to_rownames("label")
+
+  df_phylum <- tree2 %>%
+      as_tibble() %>%
+      dplyr::filter(!is.na(phylum)) %>%
+      dplyr::select(c(label, phylum)) %>%
+      # dplyr::mutate(phylum = as.factor(phylum)) %>% 
+      column_to_rownames("label")
+
+  rst <- list("protid" = protid,
+              "tree" = tree2,
+              "eco1" = df_eco1,
+              "eco4" = df_eco4,
+              "phylum" = df_phylum)
+
+  return(rst)
+}
+```
+
+
+```{r set colors}
+vphylum <- c()
+eco2 <- c()
+eco4 <- c()
+for (gene in names(fnws)) {
+  pt <- plot_tree(fnws[gene])
+  vphylum <- c(vphylum, unique(pt$phylum$phylum))
+  eco2 <- c(eco2, unique(pt$eco1$Eco2))
+  eco4 <- c(eco4, unique(pt$eco4$Eco4))
+}
+vphylum <- unique(vphylum)
+my_colors <- get_brewer_pal("Set2", n = length(vphylum), plot = F)
+names(my_colors) <- vphylum
+# my_shape <- c("Viruses"=23, "Bacteria"=21, "Archaea"=24)
+
+# eco2 <- unique(eco2)
+my_colors_eco2 = c("Aquatic" = "#1f77b4", 
+                   "Bioreactor" = "#5F4A6F")
+# my_colors_eco2 <- get_brewer_pal("Set1", n = length(eco2), plot = F)
+# names(my_colors_eco2) <- eco2
+
+# eco4 <- unique(eco4)
+# my_colors_eco4 <- get_brewer_pal("Set3", n = length(eco4), plot = F)
+# names(my_colors_eco4) <- eco4
+
+my_colors_eco4 <- c("Anaerobic-Aerobic" = "#f7b6d2",
+                  "Shale gas reservoir" = "#ff9896",
+                  "Lake" = "#2ca02c",
+                  "River" = "#c5b0d5",
+                  "Strait" = "#d62728",
+                  "Coastal" = "#98df8a",
+                  "Lentic" = "#ffbb78",
+                  "Wastewater" = "#7f7f7f",
+                  "Oceanic" = "#bcbd22",
+                  "Unclassified" = "#F1F1F1")
+```
+
+```{r plot trees}
+figs <- list()
+for (gene in names(fnws)) {
+  cfg <- cfgs[gene,]
+  pt <- plot_tree(fnws[gene])
+  p <- ggtree(pt$tree, layout="fan", branch.length = "none") +
+      geom_tiplab(aes(label=showname), align=TRUE, linesize=.1, hjust=0, linetype = "dashed", size=cfg[["tiplab_size"]], offset = cfg[["tiplab_offset"]]) +
+      geom_tippoint(size=cfg[["tippoint_size"]])
+  
+  p1 <- gheatmap(p, pt$phylum, offset=cfg[["gh_phy_offset"]], width=cfg[["gh_phy_width"]], colnames_angle=90, colnames_offset_y = 0, colnames = F) +
+      scale_fill_manual(values = alpha(my_colors, 0.5)) +
+      new_scale_fill()
+  
+  p2 <- gheatmap(p1, pt$eco4, offset=cfg[["gh_eco4_offset"]], width=cfg[["gh_eco4_width"]], colnames_angle=90, colnames_offset_y = 0, colnames = F) +
+    scale_fill_manual(values = alpha(my_colors_eco4, 1), name="Ecosystem Type (inner)", na.value = "#F1F1F1", guide = "legend") +
+    # scale_fill_viridis_d(option="D", name="Ecosystem Type (inner)", na.value = "#F1F1F1", guide = "legend") +
+    new_scale_fill()
+  
+  p3 <- gheatmap(p2, pt$eco1, offset=cfg[["gh_eco1_offset"]], width=cfg[["gh_eco1_width"]], colnames_angle=90, colnames_offset_y = 0, colnames = F) +
+    scale_fill_manual(values = alpha(my_colors_eco2, 1), name="Ecosystem Category (outside)", na.value = "#F1F1F1", guide = "legend") +
+    # scale_fill_viridis_d(option="D", name="Ecosystem Category (outside)", na.value = "#F1F1F1", guide = "legend") +
+    new_scale_fill() +
+    ggtitle(pt$protid)
+  
+  figs[pt$protid] = p3
+  ggsave(filename = path_target(paste0(pt$protid, "2.png")), plot = p3, width = cfg[["fig_width"]], height = cfg[["fig_height"]], limitsize = FALSE, dpi = 500)
+}
+```
+
+```{r}
+figs$AlkB
+```
+
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

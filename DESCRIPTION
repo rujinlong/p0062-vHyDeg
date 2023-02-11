@@ -1,18 +1,62 @@
-Package: p0062_OilVirome
-Title: What the Package Does (One Line, Title Case)
+Package: vhydeg
+Title: Hydrocarbon degradation genes in viruses
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
+    person("Jinlong", "Ru", , "jinlong.ru@gmail.com", role = c("cre", "aut"))
+Description: This is the a package with a shiny APP of viral-encoded
+    hydrocarbon degradation genes. It contains source code for the vHYDEG
+    project.
 License: GPL (>= 3)
-Encoding: UTF-8
-URL: https://github.com/rujinlong/p0062_OilVirome
-BugReports: https://github.com/rujinlong/p0062_OilVirome/issues
+URL: https://github.com/rujinlong/vhydeg
+BugReports: https://github.com/rujinlong/vhydeg/issues
 Imports: 
+    ape,
+    attachment,
+    config (>= 0.3.1),
     conflicted,
+    data.table,
+    devtools,
+    dplyr,
+    ggnewscale,
+    ggplot2,
+    ggplotify,
+    ggpubr,
+    ggthemes,
+    golem (>= 0.3.5),
     here,
-    projthis,
+    htmltools,
+    httpuv,
+    igraph,
+    JBrowseR,
+    magrittr,
+    pheatmap,
+    reactable,
+    readxl,
     renv,
+    rstudioapi,
+    sass,
+    seqinr,
+    shiny (>= 1.7.4),
+    shinythemes,
+    speedyseq,
+    stringr,
+    tidyr,
+    tidytree,
+    tidyverse,
+    treeducken,
+    usethis,
+    vroom
+Suggests: 
+    covr,
+    knitr,
     rmarkdown,
-    shiny
+    testthat (>= 3.0.0)
+biocViews: TreeSummarizedExperiment, phyloseq, ggtree, ggtreeExtra, treeio
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-US
+LazyData: true
+RoxygenNote: 7.2.3
+VignetteBuilder: knitr
+Depends: 
+    R (>= 2.10)

@@ -1,0 +1,88 @@
+---
+title: "32-vcontact2"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2022-11-06
+toc: true
+toc-depth: 4
+number-sections: true
+code-fold: true
+code-line-numbers: true
+code-tools: true
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    page-layout: article
+    theme: 
+      light: flatly
+      dark: darklyk
+reference-location: margin
+citation-location: margin
+bibliography: refs.bib
+cls: bioinformatics.csl
+params:
+  name: "32-vcontact2"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+
+```{r setup}
+#| message: false
+#| include: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "2d7eed64-4997-427a-bb02-76611ee638b1")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(here)
+library(tidyverse)
+library(data.table)
+```
+
+## Tasks
+
+The first task is ...
+
+```{r}
+fin_vc2 <- here(path_data, "genome_by_genome_overview.csv")
+fin_taxa <- here(path_data, "taxonomy.tsv")
+fin_qc <- path_source("31-vhydeg_db", "vhydegs_filter1.tsv")
+
+df_qc <- fread(fin_qc) %>% 
+  dplyr::select(c("genome_id", "vHYDEG_quality", "gene_name")) %>%
+  # remove duplicates
+  dplyr::distinct()
+
+df_mmtaxa <- fread(fin_taxa) %>% 
+  setnames("contig_id", "Genome")
+
+vc2 <- fread(fin_vc2) %>% 
+  left_join(df_mmtaxa, by = "Genome") %>% 
+  dplyr::mutate(Reference = ifelse(str_detect(Genome, "IMGVR"), "No", "Yes")) %>% 
+  dplyr::mutate(genome_id = str_replace(Genome, "\\|.*", "")) %>% 
+  dplyr::left_join(df_qc, by = "genome_id")
+
+fwrite(vc2, file = path_target("genome_annotations.tsv"), sep = "\t")
+
+vc2_family <- sort(table(vc2$Family.y), decreasing = T)
+vc2_family
+```
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

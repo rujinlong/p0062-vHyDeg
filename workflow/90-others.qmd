@@ -1,0 +1,125 @@
+---
+title: "90-others"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2023-01-29
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "90-others"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup, message=FALSE, include=FALSE}
+here::i_am(paste0(params$name, ".qmd"), uuid = "994f28a1-0676-40e6-8ea8-a70fd5be0269")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(here)
+library(conflicted)
+dpath <- normalizePath(here("../hpc"))
+```
+
+## Tasks
+
+### Import protein annotations
+
+The first task is to read protein annotation data and save to RDS.
+
+```{r anno_prot.rds}
+fp_amg <- here(dpath, "00_local/amg_database.tsv")
+fp_anno_prot <- here(dpath, "00_local/annotations.tsv")
+
+anno_prot <- read_anno_vprot(fp_anno_prot, fp_amg)
+x <- "Glycosyl transferases group 1 [PF00534.23]; Glycosyl transferases group 1 [PF13692.9]; Glycosyl transferases group 1 [PF13524.9]"
+
+saveRDS(anno_prot, file = path_target("anno_prot.rds"))
+```
+
+### Create vpf.Rdata
+
+This task is to import ViroProfiler results and generate `vpf.Rdata`
+
+```{r vpf.Rdata}
+library(here)
+library(tidyverse)
+library(data.table)
+library(speedyseq)
+library(gggenomes)
+library(vpfkit)
+
+dpath2 <- here(dpath, "hms/oldrun_del/vir/results")
+
+# ------- bins (optional) --------
+bins <- read_bins(here(dpath2, "clusters.tsv"), 
+                  here(dpath2, "vambbins_RF_predictions.txt"))
+
+# -------  contig annotations --------
+checkv <- read_checkv(here(dpath2, "quality_summary_viruses.tsv"))
+raw_taxa <- read_taxonomy(here(dpath2, "taxonomy.tsv"))
+catbat <- read_catbat(here(dpath2, "out.CAT.contig2classification_official.txt"))
+vc2 <- read_vcontact2(here(dpath2, "genome_by_genome_overview.csv"), "__")
+vcontact <- vc2$vc_tbl
+ctganno <- list("checkv"=checkv,
+                "catbat"=catbat,
+                "vcontact"=vcontact,
+                "taxonomy"=raw_taxa,
+                "bins"=bins)
+
+ctganno_merged <- ctganno$checkv %>% 
+  left_join(ctganno$taxonomy, by = "Contig") %>% 
+  left_join(ctganno$catbat, by = "contig_id") %>% 
+  left_join(ctganno$vcontact, by = "Contig") %>% 
+  left_join(ctganno$bins, by = "Contig") %>% 
+  mutate(rowid = Contig) %>% 
+  column_to_rownames("rowid")
+
+# -------- gene annotation -----------
+ganno <- fread(here(dpath2, "annotations.tsv")) %>% 
+  mutate(auxiliary_score=as.factor(auxiliary_score))
+
+# ------- sample metadata ---------
+sample_metadata <- openxlsx::read.xlsx(here(dpath, "00_local/metadata.xlsx"))
+
+# ---------- abundance ------------
+fp_count <- here(dpath2, "abundance_contigs_count.tsv")
+fp_tpm <- here(dpath2, "abundance_contigs_tpm.tsv")
+df_count <- fread(fp_count)
+df_tpm <- fread(fp_tpm)
+
+
+# Phyloseq
+phy_count <- df_count %>% 
+  column_to_rownames("Contig") %>% 
+  as.matrix() %>% 
+  otu_table(taxa_are_rows = T)
+phy_meta <- sample_metadata %>% 
+  column_to_rownames("sampleid") %>% 
+  sample_data()
+phy_taxa <- ctganno_merged %>% 
+  as.matrix() %>%
+  tax_table()
+pseq <- phyloseq(phy_count, phy_taxa, phy_meta)
+save(ctganno, ctganno_merged, ganno, pseq, file = path_target("vpf.Rdata"))
+
+# Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 100)
+```
+
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

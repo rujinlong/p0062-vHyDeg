@@ -1,0 +1,261 @@
+---
+title: "01 Create data for vHyDeg database"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2022-11-06
+toc: true
+toc-depth: 3
+number-sections: true
+number-depth: 3
+code-fold: true
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+bibliography: refs.bib
+cls: bioinformatics.csl
+params:
+  name: "01-vhydeg_db"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup}
+#| include: false
+#| message: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "98d551ea-66b8-4523-9074-47b22a30ffdb")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+
+## Tasks
+
+```{r packages and functions}
+#| warning: false
+#| message: false
+library(here)
+library(conflicted)
+library(tidyverse)
+library(data.table)
+library(seqinr)
+
+devtools::load_all(".")
+```
+
+### Import vHYDEGs detected from IMG/VR database
+
+1. Import the `vHYDEGs.tsv` file from the vHYDEGs pipeline.
+2. Remove excluded genes: `non_NdoB_type`.
+3. Filter by `bitscore_vmax` and `bitscore_min`.
+4. Save the genome list to file
+
+
+
+```{r}
+fin_vhydegs <- here(path_data, "vHYDEGs.tsv")
+genes_excluded <- c("non_NdoB_type")
+bitscore_min <- 150
+trusted_idx_min <- 0.5
+
+df_imgvr <- fread(fin_vhydegs) %>% 
+  dplyr::filter(!target_gene %in% genes_excluded) %>%  # exclude "non_NdoB_type"
+  dplyr::mutate(genome_id = str_replace_all(query_id, "\\|.*", "")) %>% 
+  setnames(c("query_id", "target_gene", "hmm_description"), c("gene_id", "gene_name", "gene_description")) %>% 
+  dplyr::filter(bitscore >= bitscore_vmax) %>% 
+  dplyr::filter(bitscore >= bitscore_min) %>% 
+  dplyr::mutate()
+  # dplyr::filter(trusted_idx >= trusted_idx_min)
+
+gene_names <- sort(unique(df_imgvr$gene_name))
+
+# save IMGVR genome list
+df_imgvr %>% 
+  dplyr::select(genome_id) %>% 
+  distinct() %>% 
+  fwrite(file = path_target("imgvr_genome.list"), col.names = F)
+
+nrow(df_imgvr)
+```
+
+There `r nrow(df_imgvr)` vHYDEGs in total. The first 5 rows of the table are shown below.
+
+```{r}
+head(df_imgvr)
+```
+
+
+### Read bakta and interpro annotations
+
+```{r add interpro and uniprot annotation}
+# Bakta (UniProt) and InterPro annotation
+fp_ncbi_bakta <- here(path_data, "ap_ncbi_canthyd_bakta.tsv")
+fp_ncbi_ipr <- here(path_data, "ap_ncbi_canthyd_interpro.tsv.gz")
+fp_imgvr_bakta <- here(path_data, "ap_vHYDEGs_bakta.tsv")
+fp_imgvr_ipr <- here(path_data, "ap_vHYDEGs_interpro.tsv.gz")
+
+# vhydeg pipeline results
+fp_imgvr_genome <- here(path_data, "imgvr_genome.tsv")
+fp_ncbi <- here(path_data, "sel_ap_ncbi_canthyd.tsv")
+fp_ncbi_map <- here(path_data, "ncbi_map.csv")
+fp_phrog <- here(path_data, "phrog_cluster_canthyd.tsv")
+fp_phrog_desc <- here(path_data, "phrog_annot_v4.tsv")
+fp_cutoff <- here(path_data, "cutoffs.tsv")
+fp_family <- here(path_data, "orf2subfamily2family.tsv")
+fp_fam_faa <- here(path_data, "all_fam.faa")
+
+df_ncbi_ipr <- read_ipr(fp_ncbi_ipr)
+df_imgvr_ipr <- read_ipr(fp_imgvr_ipr)
+df_ncbi_bakta <- read_bakta(fp_ncbi_bakta)
+df_imgvr_bakta <- read_bakta(fp_imgvr_bakta)
+
+
+# df_imgvr_with_annotations <- df_imgvr %>% 
+#   dplyr::select(-c("Eenzyme", "Broad_Enzymatic_Group", "Substrate", "Hydrocarbon_Group", "Respiration", "Trusted_Cutoff", "Noise_Cutoff", "Seed_sequences", "Closest_false_positive", "Taxon_oid", "Scaffold_oid", "Coordinates", "Ecosystem", "vOTU", "Topology", "geNomad_score", "Confidence", "Completeness", "Contamination", "Host_prediction_method", "Sequence_origin")) %>% 
+#   left_join(df_imgvr_genome, by = "genome_id") %>% 
+#   dplyr::select(-c("Gene_content", "Length", "NR_qry")) %>% 
+#   left_join(df_cutoff, by = "gene_name") %>% 
+#   left_join(df_imgvr_bakta, by = "gene_id") %>%
+#   inner_join(df_imgvr_ipr, by = "gene_id") %>%
+#   left_join(df_orf2family, by = "gene_id") %>%
+#   mutate(prot_family = family) %>%
+#   dplyr::select(-family)
+```
+
+### Prepare input data for Shiny APP
+
+```{r}
+# output
+df_orf2family <- fread(fp_family) %>% 
+  mutate(gene_id = orf) %>% 
+  dplyr::select(gene_id, family)
+
+df_phrog_desc <- fread(fp_phrog_desc) %>% 
+  mutate(phrog_id = str_c("phrog_", phrog)) %>% 
+  mutate(phrog_annot = annot) %>% 
+  mutate(phrog_category = category) %>% 
+  dplyr::select(c(phrog_id, phrog_annot, phrog_category))
+
+df_phrog <- fread(fp_phrog) %>% 
+  mutate(phrog_id = str_replace(query_id, "_[a-zA-Z].*", "")) %>% 
+  # dplyr::select(c(dbid, bitscore, phrog_id, query_id)) %>% 
+  dplyr::select(c(dbid, bitscore, phrog_id)) %>% 
+  arrange(desc(bitscore)) %>%
+  distinct(dbid, .keep_all = TRUE) %>% 
+  setnames(c("dbid", "bitscore"), c("gene_name", "bitscore_vmax")) %>%  # viral max bitscore
+  left_join(df_phrog_desc, by = "phrog_id")
+  # mutate(bitscore_vmax = ifelse(bitscore_vmax<50, 50, bitscore_vmax))
+
+df_cutoff <- fread(fp_cutoff) %>% 
+  setnames("dbid", "gene_name")
+df_ncbi_map <- fread(fp_ncbi_map)
+
+df_imgvr_genome <- fread(fp_imgvr_genome) %>% 
+  setnames("UVIG", "genome_id")
+
+df_ncbi <- fread(fp_ncbi) %>% 
+  dplyr::filter(dbid != "non_NdoB_type") %>%  # exclude "non_NdoB_type"
+  arrange(desc(bitscore)) %>%
+  distinct(query_id, .keep_all = TRUE) %>%
+  # mutate(db = "NCBI") %>%
+  left_join(df_ncbi_map, by = "query_id") %>% 
+  setnames(c("query_id", "dbid", "hmm_description"), c("gene_id", "gene_name", "gene_description")) %>% 
+  dplyr::select(-num_hsps) %>% 
+  left_join(df_cutoff, by = "gene_name") %>% 
+  left_join(df_ncbi_bakta, by = "gene_id") %>% 
+  mutate(trusted_idx = round(bitscore / Trusted_Cutoff, 2)) %>% 
+  mutate(noise_idx = round(bitscore / Noise_Cutoff, 2)) %>% 
+  left_join(df_phrog, by = "gene_name") %>% 
+  dplyr::filter(bitscore > bitscore_vmax) %>% 
+  inner_join(df_ncbi_ipr, by = "gene_id")
+
+# gene_names <- sort(unique(c(df_imgvr$gene_name, df_ncbi$gene_name, df_phrog$gene_name)))
+
+
+```
+
+### Choose final vHYDEGs
+
+Protein families were detected using mmseqs2 + hhblits + MCL. Final vHYDEGs were selected with following criteria,
+
+1. Coordinates == "whole" & Topology != "Provirus": remove proviruses
+2. bitscore > bitscore_vmax: reduce false positives 
+3. trusted_idx > 0.5: reduce false positives
+
+```{r vHYDEG family}
+# Select HQ genes
+df_imgvr_families <- df_imgvr %>% 
+  dplyr::select(c(gene_id, trusted_idx, gene_name, bitscore, bitscore_vmax, Coordinates, Contamination, Topology)) %>% 
+  dplyr::filter(Coordinates == "whole" & Topology != "Provirus" & Contamination == 0 & bitscore > bitscore_vmax & trusted_idx > 0.5) %>%
+  distinct() %>% 
+  inner_join(df_orf2family, by = "gene_id")
+
+# Rank within each family by trusted_idx
+df_imgvr_families_sel <- df_imgvr_families %>% 
+  group_by(family) %>%
+  # sort by trusted_idx in descending order
+  arrange(desc(trusted_idx)) %>%
+  # create a new column, family_rank, which is the rank of each gene in each family
+  mutate(family_rank = row_number()) %>%
+  # select the columns we want
+  dplyr::select(gene_id, family, family_rank, trusted_idx, gene_name) %>% 
+  arrange(gene_name)
+
+# Identify one family for each vHYDEG
+df_gene2family <- get_gene2family(df_imgvr_families_sel)
+# get final vHYDEGs
+df_vhydeg <- df_imgvr_families %>% 
+  mutate(gene_family = str_c(gene_name, "__", family)) %>% 
+  dplyr::filter(gene_family %in% df_gene2family$gene_family) %>%
+  # sort by gene_name and trusted_idx in descending order
+  arrange(gene_name, desc(trusted_idx)) %>% 
+  mutate(vHYDEGs_quality = "HQ") %>% 
+  dplyr::select(c(gene_id, vHYDEGs_quality, gene_name))
+
+table(df_vhydeg$gene_name)
+```
+
+```{r Save vHYDEGs faa}
+faas <- seqinr::read.fasta(fp_fam_faa, as.string = T, seqtype = "AA", forceDNAtolower = F)
+
+# df_vhydeg <- fread(path_target("02_vhydeg_final.tsv"))
+for (gname in unique(df_vhydeg$gene_name)) {
+  gene_ids <- df_vhydeg %>%
+    dplyr::filter(gene_name == gname) %>%
+    dplyr::select(gene_id) %>% 
+    pull()
+
+  faas_sel <- faas[gene_ids]
+
+  # write to fasta file
+  seqinr::write.fasta(faas_sel, names = names(faas_sel), file.out = path_target(paste0(gname, ".faa")))
+}
+```
+
+```{r Save for Shiny APP}
+df_imgvr_with_quality <- df_imgvr_with_annotations %>% 
+  left_join(df_vhydeg[, c("gene_id", "vHYDEGs_quality")], by = "gene_id") %>%
+  mutate(vHYDEGs_quality = ifelse(is.na(vHYDEGs_quality), "LQ", vHYDEGs_quality))
+
+vhydeg_db <- list(
+               # df_imgvr = df_imgvr,
+               df_imgvr = df_imgvr_with_quality,
+               # df_ncbi = df_ncbi,
+               df_phrog = df_phrog,
+               gene_names = gene_names)
+
+saveRDS(vhydeg_db, path_target("vhydeg_db.rds"))
+```
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target(), tz = "CET")
+```

@@ -1,0 +1,66 @@
+---
+title: "81-conserved_residues"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+toc-depth: 4
+number-sections: true
+code-fold: true
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+bibliography: refs.bib
+params:
+  name: "81-conserved_residues"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+
+```{r setup}
+#| message: false
+#| include: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "7f21d702-61e6-4c9b-b26a-abad761d46ff")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(here)
+```
+
+## Tasks
+
+### Structure alignment using TM-align
+
+TM-scores were calculated using TMalign command, and normalized by the average length of two proteins.
+
+```{bash}
+## Install TMalign
+# mamba install -c bioconda tmalign
+
+## Run TMalign
+# TMalign AlkB_af.pdb AlkB_O31250.pdb -a > AlkB.txt
+# TMalign AlmA_af.pdb AlmA_Q6F7T9.pdb -a > AlmA.txt
+# TMalign CYP153_af.pdb CYP153_ref.pdb -a > CYP153.txt
+# TMalign LadA_af.pdb LadA_A4IU28_3b9nA.pdb -a > LadA.txt
+# TMalign pBmoA_af.pdb pBmoA_Q607G3_7ev9B.pdb -a > pBmoA.txt
+# TMalign pBmoC_af.pdb pBmoC_A0A1M7A883.pdb -a > pBmoC.txt
+```
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

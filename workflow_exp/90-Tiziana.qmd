@@ -1,0 +1,72 @@
+---
+title: "Methods for Tiziana thesis"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+format: 
+  html: 
+    embed-resources: true
+    smooth-scroll: true
+bibliography: refs.bib
+params:
+  name: "90-Tiziana"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup}
+#| message: false
+#| include: false
+#| warning: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "2f10a907-0fc1-4e92-afb5-c65adffcdc7e")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+```{r packages}
+#| include: false
+#| warning: false
+library(here)
+library(tidyverse)
+library(data.table)
+library(treedataverse)
+```
+
+### Genome assembly and nnotation
+
+Raw reads of all sequencing samples were quality controlled using fastp [@2018-Fastp_Chen] to remove adapters and low quality reads. Clean reads were then assembled to contigs using Unicycler [@2017-Unicycler_Wick].
+
+For bacteria genome, its closest genome was obtained by searching contigs against NCBI RefSeq using refseq_masher ([https://github.com/phac-nml/refseq_masher](https://github.com/phac-nml/refseq_masher)). Contigs were ordered and scaffolded using RagTag [@2021-Automated_Alonge] with the closest genome as reference. Contigs shorter than 1kb were removed from final assemblies. The final assemblies were then annotated using Bakta [@2021-Bakta_Schwengers], which uses COG database to annotate proteins into functional categories.
+
+For phage genome, we obtained a contig that classified as "circular" by Unicycler. We named it as vB_DizS_HMGU1. Phage genome was annotated using Pharokka [@2022-Pharokka_Bouras], which uses phanotate for gene prediction, and PHROGs database for viral gene function annotation.
+
+Circos plot of genome annotations were created using pyCircos (https://github.com/ponnhide/pyCircos).
+
+### Potential hydrocarbon-degradation gene in phage genome
+
+The CDS_230 gene in phage vB_DizS_HMGU1 was annotated as AssA/BssA/NmsA by CANT-HYD database [@2022-CANTHYD_Khot]. Further annotation using InterPro database [@2022-InterPro_Paysan-Lafosse] suggests it is a grcA gene. The grcA gene belongs to glycyl radical enzyme, which can catalyzing addition of n-alkanes to fumarate creates a C-C-bond between two concomitantly formed stereogenic carbon centers. Thus we hypothesis that the grcA gene is a potential hydrocarbon-degradation gene in phage genome.
+
+To study the phylogenetic relationship of grcA gene, we searched the phage-eoncoded grcA protein sequence against NCBI NR database. Phylogenetic tree of the top 100 hits were obtained from the blastp searching results on NCBI with default parameters.
+
+
+```{r grcA-phylogeny}
+#| include: false
+fin <- here(path_data, "CDS230_iqtree.nwk")
+fin_mapping <- here(path_data, "mapping_gene2taxa.xlsx")
+df_mapping <- openxlsx::read.xlsx(fin_mapping) %>% 
+  setnames("gene_name", "label")
+
+tree <- read.tree(fin) %>% 
+  as_tibble() %>% 
+  left_join(df_mapping, by = "label") %>% 
+  mutate(label = taxa_name) %>% 
+  dplyr::select(-"taxa_name") %>% 
+  as.treedata()
+
+ggtree(tree, layout = "circular", )
+```

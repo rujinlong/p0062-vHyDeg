@@ -1,0 +1,119 @@
+---
+title: "04-gggenomes"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2023-01-29
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "04-gggenomes"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup, message=FALSE, include=FALSE}
+here::i_am(paste0(params$name, ".qmd"), uuid = "4e9cd0f8-c4fb-44a8-8401-cd4bdb335f67")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+# Load packages
+pkgs <- c("here", "tidyverse", "data.table", "gggenomes", "vpfkit", "Biostrings", "genbankr")
+for (package in pkgs) {
+  if (!require(package, character.only = TRUE)) {
+    renv::install(package)
+  }
+}
+lapply(pkgs, library, character.only = TRUE)
+
+dpath <- path_source("00-rawdata/gggenomes/IMGVR_UViG_2916665939_000001")
+fgbk_qry <- here(dpath, "rfm_IMGVR_UViG_2916665939_000001.gbk")
+fgbk_target <- here(dpath, "GCF_000924355.1.gbk")
+fgbk_bac <- here(dpath, "GCF_008693185.1.gbff")
+fgbks <- c(fgbk_qry, fgbk_target, fgbk_bac)
+ftblastx <- here(dpath, "../test.txt")
+
+df_tblastx <- filter_tblastx(ftblastx,
+                             tarvir_id = "NC_025115.1",
+                             hit_start = 41434,
+                             hit_end = 42648,
+                             flank_len = 9000,
+                             min_bitscore = 50) %>% 
+  dplyr::filter(pident >= 50)
+
+df2 <- df_tblastx %>% 
+  dplyr::select(c(seq_id2, start2, end2)) %>%
+  group_by(seq_id2) %>%
+  summarise(start = min(start2) - 5000, end = max(end2) + 5000) %>%
+  mutate(length = end - start + 1) %>%
+  arrange(seq_id2) %>% 
+  setnames("seq_id2", "seq_id")
+
+seq_ids <- c(unique(df_tblastx$seq_id2), unique(df_tblastx$seq_id))
+df_seqs <- read_seqs(fgbks) %>% 
+  dplyr::select(c(seq_id, length)) %>% 
+  dplyr::filter(.data$seq_id %in% seq_ids) %>% 
+  dplyr::mutate(start = 1, end = .data$length) %>%
+  dplyr::mutate(length = .data$end - .data$start + 1)
+  # dplyr::mutate(seq_id = ifelse(seq_id == "NZ_QUGI01000002", "Pseudoflavonifractor sp. AF19-9AC", seq_id)) %>% 
+  # dplyr::mutate(seq_id = ifelse(seq_id == "BAF3", "VC-1", seq_id))
+
+# bind df_seqs and df2
+df_seqs2 <- rbind(df_seqs, df2) %>% 
+  dplyr::filter(length > 11000 & length < 50000) %>% 
+  dplyr::mutate(seq_order = c(2,1,3)) %>% 
+  dplyr::arrange(.data$seq_order) %>% 
+  dplyr::select(-"seq_order")
+
+
+# read in gbk files for gggenomes
+df_genes <- read_feats(fgbks) %>% 
+  # dplyr::mutate(seq_id = ifelse(seq_id == "NZ_QUGI01000002", "Pseudoflavonifractor sp. AF19-9AC", seq_id)) %>% 
+  dplyr::mutate(type = ifelse(type == "HIT", "CDS", type)) %>% 
+  # dplyr::mutate(seq_id = ifelse(seq_id == "BAF3", "VC-1", seq_id)) %>% 
+  dplyr::mutate(hit = ifelse(locus_tag %in% c("IMGVR_UViG_2916665939_000001_CDS_68"), "yes", "no")) %>% 
+  dplyr::filter(.data$seq_id %in% seq_ids)
+  
+# df_seqs[["start"]] <- c(62500, 32000)
+# df_seqs[["end"]] <- c(74000, 46000)
+# df_seqs[["length"]] <- df_seqs[["end"]] - df_seqs[["start"]]
+
+p <- gggenomes(seqs = df_seqs2, genes = df_genes, links = df_tblastx) +
+  geom_seq(size=1) +
+  geom_bin_label() +
+  # geom_gene(aes(fill = hit), size=2, show.legend = F ) +
+  geom_gene(size=2, show.legend = F ) +
+  # scale_fill_manual(values = c("#ffffbf", "#fc8d59")) +
+  ggnewscale::new_scale("fill") +
+  geom_link(aes(fill = pident, color = pident), alpha=1, offset = 0.04) +
+  # geom_link(color="blue", alpha=0.95, offset = 0.04) +
+  # fill color gradient from white to red
+  scale_fill_gradient(low = "white", high = "#91bfdb") +
+  scale_color_gradient(low = "white", high = "#91bfdb") +
+  geom_gene_label(aes(label = product), nudge_y = 0.06, angle = 30, size = 2, check_overlap = T) +
+  # change legend title to "identity (%)"
+  labs(fill = "identity (%)", color = NULL)
+
+ggsave(path_target("synteny.pdf"), p, width = 30, height = 8, limitsize = F)
+```
+
+
+
+## Tasks
+
+The first task is ...
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

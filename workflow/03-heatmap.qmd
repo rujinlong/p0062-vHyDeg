@@ -1,0 +1,148 @@
+---
+title: "03-heatmap"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "03-heatmap" # change if you rename file
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup}
+#| message: false
+#| include: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "3b77ea47-da62-4af8-8e8a-2e462b70279d")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+```
+
+The purpose of this document is ...
+
+```{r packages}
+library(conflicted)
+library(here)
+library(tidyverse)
+library(data.table)
+library(pheatmap)
+
+min_fam_prevalence <- 3
+fin_orf2family <- here(path_data, "orf2family.tsv")
+fin_genome_anno <- here(path_data, "genome_annotation.tsv")
+
+fout_svg <- path_target("heatmap.svg")
+```
+
+## Tasks
+
+The first task is ...
+
+```{r}
+fin_taxa <- here(path_data, "imgvr57_taxa_formatted_all.tsv")
+df_taxa <- vpfkit::read_taxonomy2(fin_taxa) %>% 
+  setnames("Contig", "genome_id") %>% 
+  dplyr::select(c("genome_id", "Family")) %>% 
+  dplyr::filter(Family!="")
+
+df_genome_anno_raw <- fread(fin_genome_anno) %>% 
+  dplyr::select(-c("MAH_alpha", "MAH_beta", "LadA_beta", "DszC")) %>% 
+  setnames("AlmA_GroupI", "AlmA") %>% 
+  dplyr::select(-"Family") %>% 
+  left_join(df_taxa, by = "genome_id")
+
+imgvr_genomes_heatmap <- df_vhydegs_hq2$genome_id
+
+# imgvr_vcs_heatmap <- df_genome_anno_raw %>% 
+#   dplyr::filter(genome_id %in% imgvr_genomes_heatmap) %>% 
+#   pull(VC) %>% 
+#   unique()
+# 
+# df_genome_anno_heatmap <- df_genome_anno_raw %>% 
+#   dplyr::filter(VC %in% imgvr_vcs_heatmap)
+
+df_genome_anno_heatmap <- df_genome_anno_raw %>% 
+  dplyr::filter(genome_id %in% imgvr_genomes_heatmap)
+```
+
+
+```{r}
+df_genome_anno <- df_genome_anno_heatmap %>% 
+  mutate(Viral_cluster = ifelse(str_detect(VC, "^IMGVR"), "", VC)) %>% 
+  mutate(Taxonomy = ifelse(Family == "", "Unknown", Family)) %>% 
+  mutate(Taxonomy = as.factor(Taxonomy)) %>% 
+  mutate(Environment = ifelse(Environment == "", "Unknown", Environment)) %>% 
+  mutate(Environment = as.factor(Environment)) %>% 
+  setnames("source", "Source") %>% 
+  dplyr::select(-c(Kingdom, Phylum, Class, Order, Family, Genus, Species, VC, Viral_cluster)) %>% 
+  column_to_rownames("genome_id") %>% 
+  dplyr::select(c(Taxonomy, Environment), everything()) %>%
+  dplyr::mutate(AlkB = as.factor(AlkB)) %>%
+  dplyr::mutate(LadA_alpha = as.factor(LadA_alpha)) %>%
+  dplyr::mutate(CYP153 = as.factor(CYP153)) %>%
+  dplyr::mutate(pBmoA = as.factor(pBmoA)) %>%
+  dplyr::mutate(pBmoC = as.factor(pBmoC)) %>%
+  dplyr::mutate(AlmA = as.factor(AlmA)) %>% 
+  # remove source
+  dplyr::select(-"Source")
+  
+  
+
+df_orf2family <- fread(fin_orf2family) %>% 
+  mutate(genome_id = str_replace_all(orf, "_CDS.*", "")) %>% 
+  setnames("family", "pfid") %>% 
+  dplyr::select(c(genome_id, pfid)) %>% 
+  dplyr::filter(genome_id %in% df_genome_anno_heatmap$genome_id) %>% 
+  distinct() %>%
+  mutate(value = 1) %>% 
+  pivot_wider(names_from = genome_id, values_from = value) %>% 
+  column_to_rownames("pfid") %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  dplyr::filter(rowSums(.) >= min_fam_prevalence)            # fam in at least 3 genomes
+
+# plot heatmap using pheatmap
+# save as svg file
+fout_svg <- path_target("plt_heatmap.svg")
+svg(fout_svg, width = 7, height = 7)
+pheatmap(df_orf2family, 
+         color = c("#fff9ff", "red"),
+         cluster_rows = T, 
+         cluster_cols = T, 
+         show_rownames = F, 
+         show_colnames = T, 
+         fontsize = 6, 
+         fontsize_col = 5,
+         width = 6,
+         height = 12,
+         legend = F,
+         drop_levels = T,
+         annotation_col = df_genome_anno,
+         annotation_legend = T,
+         annotation_colors = list(AlkB = c("1" = "lightblue", "0" = "white"),
+                                  LadA_alpha = c("1" = "lightblue", "0" = "white"),
+                                  CYP153 = c("1" = "lightblue", "0" = "white"),
+                                  pBmoA = c("1" = "lightblue", "0" = "white"),
+                                  pBmoC = c("1" = "lightblue", "0" = "white"),
+                                  AlmA = c("1" = "lightblue", "0" = "white")),
+         # border_color = NA, 
+         # filename = path_target("heatmap.svg"),
+         cutree_rows = 1)
+dev.off()
+```
+
+**`r nrow(df_orf2family)`** PCs from **`r ncol(df_orf2family)`** genomes.
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

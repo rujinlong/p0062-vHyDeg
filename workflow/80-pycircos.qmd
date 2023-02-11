@@ -1,0 +1,119 @@
+---
+title: "80-pycircos"
+title-block-banner: true
+author:
+  - name: Jinlong Ru
+    orcid: 0000-0002-6757-6018
+date: 2023-02-23
+toc: true
+format: gfm
+bibliography: refs.bib
+params:
+  name: "80-pycircos"
+---
+
+Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.
+
+```{r setup, message=FALSE, include=FALSE}
+here::i_am(paste0(params$name, ".qmd"), uuid = "4808fcd5-edaf-4adb-8495-a91202104f98")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_data <- path_source("00-raw", params$name)
+dir.create(path_data, recursive = T)
+fin_cfg <- path_source("00-raw", "config.xlsx")
+```
+
+The purpose of this document is ...
+
+::: {.callout-tip}
+## Use excel file config
+
+This analysis introduces an excel-based config file.
+:::
+
+```{r packages}
+library(here)
+library(tidyverse)
+```
+
+```{python pycircos}
+import os
+import pandas as pd
+import pyscript as psc
+import matplotlib.pyplot as plt
+
+fin_phrog = os.path.join(r.path_data, "phrog_annot_v4.tsv")
+fin_vhydeg = os.path.join(r.path_data, "vHYDEGs.tsv")
+fin_rbh = os.path.join(r.path_data, "rbh.tsv")
+fin_sulfur = os.path.join(r.path_data, "ap_pharokka_sulfur_top1.tsv")
+
+# read config file
+cfg = pd.read_excel(r.fin_cfg, sheet_name = r.params["name"]).set_index('fid').to_dict('index')
+
+df_vhydegs = pd.read_csv(fin_vhydeg, sep="\t")
+df_vhydegs.rename(columns={"query_id": "id_imgvr"}, inplace=True)
+df_vhydegs = df_vhydegs[["id_imgvr", "target_gene"]]
+
+df_rbh = pd.read_csv(fin_rbh, sep="\t", names = ["id_new", "id_imgvr", "identity", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore"])
+df_rbh = df_rbh[["id_new", "id_imgvr"]].copy()
+df_rbh["genome_id"] = df_rbh["id_imgvr"].str.split("|").str[0]
+df_rbh = df_rbh.merge(df_vhydegs, on="id_imgvr", how="left")
+
+# create a dictionary of {genome_id: [{"id_new": "target_gene"}]}
+dict_rbh = {}
+for genome_id, df in df_rbh.groupby("genome_id"):
+    dict_rbh[genome_id] = df[["id_new", "target_gene"]].to_dict(orient="records")
+    
+# sulfur genes
+df_sulfur = pd.read_csv(fin_sulfur, sep = "\t")
+protid_sulfur = df_sulfur.query_id.unique().tolist()
+
+# parameters
+bgcolor = "#E1F5FE"
+tick_label_size = 16
+
+dir_gbks = os.path.join(r.path_data, "gbks")
+fids = [os.path.splitext(os.path.basename(fgbk))[0] for fgbk in os.listdir(dir_gbks) if fgbk.endswith(".gbk")]
+fids = [x for x in fids if x in cfg.keys()]
+for fid in fids:
+    fgbk = os.path.join(dir_gbks, f"{fid}.gbk")
+    record = psc.get_gbk(fgbk)
+    vhydegs = dict_rbh[record.id]
+    target_gene = vhydegs[0]["target_gene"]
+    gcircle = psc.plot_phrog_circos(cfg[fid]['sample_id'], record, fin_phrog, cfg[fid]['tick_interval'], tick_label_size, cfg[fid]['window_size'], protid_sulfur, figsize=10, dict_rbh=dict_rbh, cdscolor="#B3E5FC", labelsize=14)
+
+    fout = os.path.join(r.path_target(), f"{target_gene}_{fid}")
+    gcircle.save(fout, format="png")
+
+# ------------- Plot PHROGs legend ----------------------
+df_phrog = psc.read_phrog_annot(fin_phrog)
+df_phrog = df_phrog[["color", "category"]].drop_duplicates()
+# create fig with legend
+_, ax = plt.subplots()
+for i, row in df_phrog.iterrows():
+    ax.barh(0, 1, color=row["color"], label=row["category"])
+
+# plot legend in a separate figure
+handles, labels = ax.get_legend_handles_labels()
+fig, ax2 = plt.subplots(figsize=(4.5, 3))
+ax2.xaxis.set_visible(False)
+ax2.yaxis.set_visible(False)
+for spine in ax2.spines.values():
+    spine.set_visible(False)
+ax2.legend(handles, labels, frameon=False, loc="best")
+fig.savefig(os.path.join(r.path_target(), "legend.svg"))
+```
+
+
+## Tasks
+
+The first task is ...
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

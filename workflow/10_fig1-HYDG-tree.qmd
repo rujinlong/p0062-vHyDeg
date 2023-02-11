@@ -19,6 +19,7 @@ params:
 Updated at `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'UTC')` UTC.
 
 ```{r setup, message=FALSE, include=F}
+params <- list(name="10_fig1-HYDG-tree")
 here::i_am(paste0(params$name, ".qmd"), uuid = "cdc28f4c-4364-4c58-8fa2-c91fc4d1dfd4")
 projthis::proj_create_dir_target(params$name, clean = FALSE)
 path_target <- projthis::proj_path_target(params$name)
@@ -56,7 +57,7 @@ library(ggtree)
 library(ggtreeExtra)
 library(ggnewscale)
 
-dir_prj <- normalizePath("..")
+dir_prj <- normalizePath(".")
 wd <- here(dir_prj, "data/fig1_HYDG_tree")
 ```
 

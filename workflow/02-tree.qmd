@@ -178,7 +178,7 @@ names(my_colors) <- vphylum
 # my_shape <- c("Viruses"=23, "Bacteria"=21, "Archaea"=24)
 
 # eco2 <- unique(eco2)
-my_colors_eco2 = c("Aquatic" = "#1f77b4", 
+my_colors_eco2 = c("Aquatic" = "#1f77b4",
                    "Bioreactor" = "#5F4A6F")
 # my_colors_eco2 <- get_brewer_pal("Set1", n = length(eco2), plot = F)
 # names(my_colors_eco2) <- eco2
@@ -227,6 +227,15 @@ for (gene in names(fnws)) {
   ggsave(filename = path_target(paste0(pt$protid, "2.png")), plot = p3, width = cfg[["fig_width"]], height = cfg[["fig_height"]], limitsize = FALSE, dpi = 500)
 }
 ```
+
+```{r}
+names(fnws)
+
+rst <- plot_tree(fnws["CYP153"])
+rst$tree %>% 
+  as_tibble()
+```
+
 
 ```{r}
 figs$AlkB

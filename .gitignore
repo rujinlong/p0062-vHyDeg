@@ -10,7 +10,6 @@ workflow/*
 !workflow/*.bib
 !workflow/*.cls
 !workflow/config
-!workflow/pyscript/*.py
 *.html
 analysis
 manuscript
@@ -23,3 +22,6 @@ hpc
 pyenv
 /.luarc.json
 workflow_exp/data
+!workflow/pyscript
+workflow/pyscript/__pycache__
+rsconnect

@@ -4,7 +4,7 @@
 \name{vhydeg-package}
 \alias{vhydeg}
 \alias{vhydeg-package}
-\title{vhydeg: Hydrocarbon degradation genes in viruses}
+\title{vhydeg: Virus-encoded Hydrocarbon degradation genes}
 \description{
 This is the a package with a shiny APP of viral-encoded hydrocarbon degradation genes. It contains source code for the vHYDEG project.
 }

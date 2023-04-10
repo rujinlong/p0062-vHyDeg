@@ -1,6 +1,6 @@
 Package: vhydeg
-Title: Hydrocarbon degradation genes in viruses
-Version: 0.0.0.9000
+Title: Virus-encoded Hydrocarbon degradation genes
+Version: 0.1
 Authors@R: 
     person("Jinlong", "Ru", , "jinlong.ru@gmail.com", role = c("cre", "aut"))
 Description: This is the a package with a shiny APP of viral-encoded
@@ -30,13 +30,16 @@ Imports:
     JBrowseR,
     magrittr,
     pheatmap,
+    pkgload,
     reactable,
     readxl,
     renv,
+    rsconnect,
     rstudioapi,
     sass,
     seqinr,
     shiny (>= 1.7.4),
+    shinycssloaders,
     shinythemes,
     speedyseq,
     stringr,

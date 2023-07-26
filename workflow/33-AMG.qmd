@@ -1,0 +1,114 @@
+---
+title: "33-AMG"
+title-block-banner: true
+author:
+  - name: xxx
+    orcid: xxx
+date: 2022-11-06
+toc: true
+toc-depth: 4
+number-sections: true
+code-fold: true
+code-line-numbers: true
+code-tools: true
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    page-layout: article
+reference-location: margin
+citation-location: margin
+params:
+  name: "33-AMG"
+---
+
+**Updated: `r format(Sys.time(), '%Y-%m-%d %H:%M:%S', tz = 'CET')` CET.**
+
+The purpose of this document is ...
+
+```{r setup}
+#| message: false
+#| include: false
+here::i_am(paste0(params$name, ".qmd"), uuid = "20c97cbb-a7de-468b-b5b4-1f69bd146c25")
+projthis::proj_create_dir_target(params$name, clean = FALSE)
+path_target <- projthis::proj_path_target(params$name)
+path_source <- projthis::proj_path_source(params$name)
+path_raw <- path_source("00-raw")
+dir.create(path_raw, recursive = T)
+path_data <- here::here(path_raw, params$name)
+dir.create(path_data, recursive = T)
+```
+
+```{r packages}
+library(here)
+library(conflicted)
+library(tidyverse)
+library(data.table)
+
+extract_rbh <- function(fin_rbh, thr=1) {
+  df_rbh <- fread(fin_rbh) %>% 
+    dplyr::select(V1:V3) %>% 
+    dplyr::mutate(contig_query=str_replace(V1, "\\|.*", "")) %>% 
+    dplyr::mutate(contig_target=str_replace(V2, "-cat_.*", "")) %>% 
+    dplyr::filter(contig_query==contig_target, V3>=thr)
+  
+  return(df_rbh)
+}
+```
+
+## Tasks
+
+The first task is ...
+
+```{r}
+df_dramv <- fread(here(path_data, "amg_summary.tsv")) %>% 
+  dplyr::select(gene) %>% 
+  dplyr::distinct()
+
+df_vibrant <- fread(here(path_data, "VIBRANT_AMG_individuals_input.tsv")) %>% 
+  dplyr::select(protein)
+
+df_imgvr2dramv <- extract_rbh(here(path_data, "imgvr2dramv.tsv")) %>% 
+  dplyr::select(V1,V2) %>% 
+  setnames(colnames(.), c("gene_id", "gene")) %>%   # gene_id: imgvr gene id
+  dplyr::inner_join(df_dramv, by = "gene") %>% 
+  dplyr::select(-gene) %>% 
+  dplyr::mutate(amg_dramv="true")
+
+df_imgvr2vibrant <- fread(here(path_data, "imgvr2vibrant.tsv")) %>% 
+  dplyr::select(V1:V3) %>% 
+  dplyr::mutate(contig_query=str_replace(V1, "\\|.*", "")) %>% 
+  dplyr::mutate(contig_target=str_replace(V2, "_[0-9]+$", "")) %>% 
+  dplyr::filter(contig_query==contig_target) %>% 
+  dplyr::select(V1,V2) %>% 
+  setnames(colnames(.), c("gene_id", "protein")) %>% 
+  dplyr::inner_join(df_vibrant, by = "protein") %>% 
+  dplyr::select(-protein) %>% 
+  dplyr::mutate(amg_vibrant="true")
+  
+
+df <- openxlsx::read.xlsx(here(path_data, "supplenmentary_table.xlsx")) %>% 
+  dplyr::left_join(df_imgvr2dramv, by = "gene_id") %>% 
+  dplyr::left_join(df_imgvr2vibrant, by = "gene_id") %>% 
+  dplyr::mutate(amg=ifelse((amg_dramv=="true" | amg_vibrant=="true"), "true", "unknown")) %>% 
+  dplyr::mutate(amg=ifelse(is.na(amg), "unknown", amg))
+
+openxlsx::write.xlsx(df, file = path_target("supplenmentary_table.xlsx"))
+```
+
+```{r}
+df %>% 
+  dplyr::mutate(amg=ifelse(amg=="true",1,0)) %>% 
+  dplyr::select(gene_name, amg) %>% 
+  dplyr::group_by(gene_name) %>% 
+  summarise(n_genomes=n(), amg=sum(amg))
+```
+
+
+## Files written
+
+These files have been written to the target directory, ```r paste0("data/", params$name)```:
+
+```{r list-files-target}
+projthis::proj_dir_info(path_target())
+```

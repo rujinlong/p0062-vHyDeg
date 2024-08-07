@@ -25,3 +25,4 @@ workflow_exp/data
 !workflow/pyscript
 workflow/pyscript/__pycache__
 rsconnect
+analyses_e1/data
